@@ -22,7 +22,3 @@ Solidity + Foundry · Arbitrum (testnet: Arbitrum Sepolia) · Next.js (TypeScrip
 6. Bot Telegram (`paralel-telegram-bot`)
 
 Skill untuk tiap tahap ada di `.github/skills/`.
-
-## Catatan
-- Dokumen di `docs/` ditulis dalam bahasa Indonesia; kode dan komentar dalam bahasa Inggris.
-- Jangan menyimpan rahasia (private key, token) di repositori ini.
