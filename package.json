@@ -1,0 +1,14 @@
+{
+  "name": "paralel",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "context:build": "tsx scripts/context/build.ts",
+    "context:check": "tsx scripts/context/build.ts --check"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}

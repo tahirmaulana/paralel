@@ -21,3 +21,6 @@ contracts/broadcast/
 .DS_Store
 .vscode/
 .idea/
+
+# context generator
+CONTEXT.md.tmp

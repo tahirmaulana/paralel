@@ -1,0 +1,63 @@
+{
+  "output": "CONTEXT.md",
+  "annotations": {
+    "prefix": "@file",
+    "required": false
+  },
+  "tree": {
+    "exclude": [
+      "node_modules/**",
+      "**/node_modules/**",
+      ".next/**",
+      "**/.next/**",
+      "out/**",
+      "**/out/**",
+      "dist/**",
+      "**/dist/**",
+      "cache/**",
+      "**/cache/**",
+      "artifacts/**",
+      "**/artifacts/**",
+      "broadcast/**",
+      "**/broadcast/**",
+      "coverage/**",
+      "**/coverage/**",
+      ".git/**"
+    ]
+  },
+  "scan": {
+    "exclude": [
+      "**/*.md",
+      "node_modules/**",
+      "**/node_modules/**",
+      ".next/**",
+      "**/.next/**",
+      "out/**",
+      "**/out/**",
+      "dist/**",
+      "**/dist/**",
+      "cache/**",
+      "**/cache/**",
+      "artifacts/**",
+      "**/artifacts/**",
+      "broadcast/**",
+      "**/broadcast/**",
+      "coverage/**",
+      "**/coverage/**",
+      "package-lock.json",
+      "pnpm-lock.yaml",
+      "yarn.lock",
+      "bun.lockb",
+      "CONTEXT.md"
+    ]
+  },
+  "specs": {
+    "behavior": "docs/PARALEL.md",
+    "contract": "docs/CONTRACT_SPEC.md",
+    "stack": "docs/TECH_STACK.md",
+    "skills": ".github/skills/*/SKILL.md"
+  },
+  "secretScan": {
+    "failOnMatch": true
+  }
+}
