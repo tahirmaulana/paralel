@@ -9,7 +9,7 @@ Prototype lelang **Web3 + RWA** (aset fisik) di **Arbitrum**, untuk pasar Indone
 | [`docs/PARALEL.md`](docs/PARALEL.md) | Spesifikasi perilaku sistem (sumber kebenaran; menang bila ada pertentangan) |
 | [`docs/CONTRACT_SPEC.md`](docs/CONTRACT_SPEC.md) | Fungsi smart contract, invarian, skenario uji Foundry |
 | [`docs/TECH_STACK.md`](docs/TECH_STACK.md) | Stack, struktur monorepo, environment, pembagian tugas komponen |
-| [`docs/AGENT_BUILDER_SETUP.md`](docs/AGENT_BUILDER_SETUP.md) | Panduan isian Agent Builder (Copilot Studio) |
+| [`docs/AGENT_BUILDER_SETUP.md`](docs/AGENT_BUILDER_SETUP.md) | Panduan isian Agent Builder |
 
 ## Stack ringkas
 Solidity + Foundry · Arbitrum (testnet: Arbitrum Sepolia) · Next.js (TypeScript) · wagmi + viem · PostgreSQL (Neon) + Drizzle · Cloudflare Workers (keeper, indexer, bot Telegram) · next-intl (EN default, ID terjemahan).
