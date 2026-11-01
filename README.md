@@ -21,7 +21,7 @@ Solidity + Foundry · Arbitrum (testnet: Arbitrum Sepolia) · Next.js (TypeScrip
 5. Web UI (`paralel-web-ui`)
 6. Bot Telegram (`paralel-telegram-bot`)
 
-Skill untuk tiap tahap ada di `.github/skills/`; aturan global di `.github/copilot-instructions.md`.
+Skill untuk tiap tahap ada di `.github/skills/`.
 
 ## Catatan
 - Dokumen di `docs/` ditulis dalam bahasa Indonesia; kode dan komentar dalam bahasa Inggris.
