@@ -4,7 +4,7 @@
 
 ## Header
 
-- Commit: `56b1bd2b3c3d1fdb7c16d9df00f56be6be2d7059`
+- Commit: `f3b54243d3114c904e18c96e72c27d3dd2fb3690`
 - Node: `v24.21.0`
 - Package manager: `npm`
 - Foundry: `forge Version: 1.8.7`
@@ -20,7 +20,33 @@
 │       ├── paralel-indexer-keeper_SKILL.md
 │       ├── paralel-telegram-bot_SKILL.md
 │       └── paralel-web-ui_SKILL.md
+├── apps/
+│   └── web/
+│       ├── public/
+│       │   ├── file.svg
+│       │   ├── globe.svg
+│       │   ├── next.svg
+│       │   ├── vercel.svg
+│       │   └── window.svg
+│       ├── src/
+│       │   └── app/
+│       │       ├── favicon.ico
+│       │       ├── globals.css
+│       │       ├── layout.tsx
+│       │       ├── page.tsx  — Landing page to test wallet connection
+│       │       └── providers.tsx
+│       ├── .gitignore
+│       ├── AGENTS.md
+│       ├── eslint.config.mjs
+│       ├── next.config.ts
+│       ├── package-lock.json
+│       ├── package.json
+│       ├── README.md
+│       └── tsconfig.json
 ├── contracts/
+│   ├── script/
+│   │   ├── Deploy.s.sol
+│   │   └── Setup.s.sol
 │   ├── src/
 │   │   ├── interfaces/
 │   │   │   └── IERC20Permit.sol
@@ -34,7 +60,8 @@
 ├── docs/
 │   ├── CONTRACT_SPEC.md
 │   ├── PARALEL.md
-│   └── TECH_STACK.md
+│   ├── TECH_STACK.md
+│   └── WALLET_OPERATIONS.md
 ├── packages/
 │   └── db/
 │       └── src/
@@ -385,7 +412,19 @@ Total: DONE=61 STUB=0 MISSING=247
 
 ## Env keys
 
+- `PRIVATE_KEY`
+- `ARBITRUM_RPC_URL`
+- `USDC_ADDRESS`
+- `PLATFORM_WALLET`
+- `TAX_WALLET`
+- `RELAYER_WALLET`
 - `DATABASE_URL`
+- `ARBITRUM_RPC_URL`
+- `AUCTION_CONTRACT_ADDRESS`
+- `RELAYER_PRIVATE_KEY`
+- `DATABASE_URL`
+- `ARBITRUM_RPC_URL`
+- `AUCTION_CONTRACT_ADDRESS`
 
 ## Config files
 
@@ -396,6 +435,8 @@ Total: DONE=61 STUB=0 MISSING=247
 
 ## Known TODO
 
+- `apps/web/src/app/favicon.ico:1` —     00     �%  6          �  �%       h  �6  (   0   `           $                                                                
+- `apps/web/src/app/favicon.ico:4` — �   �   �   �   �   �   �   �   �   �   �   �   �   �   o   �   �   �   �   �   �   �   �   �   �   �   �   ��������������������������������
 - `scripts/context/build.ts:108` — // ---------- TODO scan ----------
 - `scripts/context/build.ts:114` — if (/\b(TODO|FIXME|XXX)\b|unimplemented!|todo!/.test(lines[i])) {
 - `scripts/context/build.ts:127` — return /unimplemented!|todo!|throw new Error\(['"]not implemented|TODO:\s*implement/i.test(c);
