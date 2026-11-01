@@ -8,7 +8,14 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "drizzle-kit": "^0.31.11",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.2.0",
+    "dotenv": "^18.0.9",
+    "drizzle-orm": "^0.45.4",
+    "postgres": "^4.0.0"
   }
 }
