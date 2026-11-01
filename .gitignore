@@ -24,3 +24,6 @@ contracts/broadcast/
 
 # context generator
 CONTEXT.md.tmp
+
+# foundry lib
+contracts/lib/
