@@ -4,7 +4,7 @@
 
 ## Header
 
-- Commit: `dd5eee3fb23b4da5a5e583ebb3be38cc9c024939`
+- Commit: `56b1bd2b3c3d1fdb7c16d9df00f56be6be2d7059`
 - Node: `v24.21.0`
 - Package manager: `npm`
 - Foundry: `forge Version: 1.8.7`
@@ -35,12 +35,27 @@
 │   ├── CONTRACT_SPEC.md
 │   ├── PARALEL.md
 │   └── TECH_STACK.md
+├── packages/
+│   └── db/
+│       └── src/
+│           ├── index.ts
+│           └── schema.ts
 ├── scripts/
 │   └── context/
 │       └── build.ts
+├── workers/
+│   └── indexer/
+│       ├── src/
+│       │   ├── abi.json
+│       │   ├── index.ts
+│       │   └── types.ts
+│       ├── .dev.vars
+│       └── wrangler.toml
+├── .env.example
 ├── .gitignore
 ├── context.config.json
 ├── CONTEXT.md
+├── drizzle.config.ts
 ├── package-lock.json
 ├── package.json
 ├── README.md
@@ -370,11 +385,12 @@ Total: DONE=61 STUB=0 MISSING=247
 
 ## Env keys
 
-_Tidak ada `.env.example`._
+- `DATABASE_URL`
 
 ## Config files
 
 - `tsconfig.json`
+- `drizzle.config.ts`
 - `package.json`
 - `context.config.json`
 
