@@ -1,29 +1,31 @@
 // @file packages/db/src/schema.ts — Drizzle database schema for Paralel
-import { 
-  pgTable, uuid, text, timestamp, boolean, bigint, 
-  smallint, jsonb, customType, integer, bigserial, index, uniqueIndex 
+// ref: PARALEL.md Lampiran D1–D7, §D0, §5.1, §6, §7; CONTRACT_SPEC.md §1
+import {
+  pgTable, uuid, text, timestamp, boolean, bigint, smallint, jsonb,
+  customType, integer, bigserial, index, uniqueIndex, primaryKey, check,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
-// Custom type untuk bytea (karena Drizzle belum punya bawaan)
 const bytea = customType<{ data: Buffer; notNull: false; default: false }>({
-  dataType() {
-    return 'bytea';
-  },
+  dataType() { return 'bytea'; },
 });
 
-// ==========================================
-// D1. PENGGUNA & MITRA
-// ==========================================
+// ─── D1. PENGGUNA & MITRA ──────────────────────────────────
+
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
   wallet: text('wallet').notNull().unique(),
-  userType: text('user_type').notNull().default('PUBLIC'), // PUBLIC, NOTARY, GUARANTOR, PLATFORM
+  userType: text('user_type').notNull().default('PUBLIC'),
   email: text('email'),
   preferredLanguage: text('preferred_language').notNull().default('EN'),
-  telegramChatId: bigint('telegram_chat_id', { mode: 'number' }).unique(),
+  telegramChatId: bigint('telegram_chat_id', { mode: 'bigint' }).unique(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  check('chk_users_wallet', sql`${t.wallet} ~ '^0x[0-9a-f]{40}$'`),
+  check('chk_users_user_type', sql`${t.userType} IN ('PUBLIC','NOTARY','GUARANTOR','PLATFORM')`),
+  check('chk_users_pref_lang', sql`${t.preferredLanguage} IN ('EN','ID')`),
+]);
 
 export const kycProfiles = pgTable('kyc_profiles', {
   userId: uuid('user_id').primaryKey().references(() => users.id),
@@ -32,36 +34,48 @@ export const kycProfiles = pgTable('kyc_profiles', {
   address: text('address').notNull(),
   faceVerified: boolean('face_verified').notNull().default(false),
   idExtractedByAi: boolean('id_extracted_by_ai').notNull(),
-  status: text('status').notNull(), // PENDING, VERIFIED, FAILED
+  status: text('status').notNull(),
   verifiedAt: timestamp('verified_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  check('chk_kyc_nik', sql`${t.nik} ~ '^[0-9]{16}$'`),
+  check('chk_kyc_status', sql`${t.status} IN ('PENDING','VERIFIED','FAILED')`),
+]);
 
 export const partners = pgTable('partners', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: uuid('user_id').notNull().references(() => users.id).unique(),
-  type: text('type').notNull(), // NOTARY, GUARANTOR
+  type: text('type').notNull(),
   name: text('name').notNull(),
   category: text('category'),
   city: text('city'),
   active: boolean('active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  check('chk_partners_type', sql`${t.type} IN ('NOTARY','GUARANTOR')`),
+  // 'ALL' = guarantor pilot lintas kategori (keputusan desain)
+  check('chk_partners_category_val', sql`${t.category} IS NULL OR ${t.category} IN ('ALL','OTOMOTIF','PROPERTI','ELEKTRONIK','AKSESORIS_HOBI','PERHIASAN')`),
+  check('chk_partners_role_shape', sql`
+    (${t.type} = 'GUARANTOR' AND ${t.category} IS NOT NULL AND ${t.city} IS NOT NULL)
+    OR (${t.type} = 'NOTARY' AND ${t.category} IS NULL)
+  `),
+]);
 
-// ==========================================
-// D2. LELANG
-// ==========================================
+// ─── D5. FEE CONFIG (harus sebelum auctions karena FK) ─────
+
 export const feeConfig = pgTable('fee_config', {
   id: uuid('id').defaultRandom().primaryKey(),
   platformBps: integer('platform_bps').notNull(),
   guarantorBps: integer('guarantor_bps').notNull(),
   notaryBps: integer('notary_bps').notNull(),
   taxBps: integer('tax_bps').notNull(),
-  withdrawFee: bigint('withdraw_fee', { mode: 'number' }).notNull(),
+  withdrawFee: bigint('withdraw_fee', { mode: 'bigint' }).notNull(),
   effectiveFrom: timestamp('effective_from', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ─── D2. LELANG ─────────────────────────────────────────────
 
 export const auctions = pgTable('auctions', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -81,31 +95,38 @@ export const auctions = pgTable('auctions', {
   onchainRegisteredAt: timestamp('onchain_registered_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => {
-  return {
-    statusIdx: index('idx_auctions_status').on(table.status),
-    consignorIdx: index('idx_auctions_consignor').on(table.consignorId),
-    guarantorIdx: index('idx_auctions_guarantor').on(table.guarantorId),
-    catStatusIdx: index('idx_auctions_cat_status').on(table.category, table.status),
-  };
-});
+}, (t) => [
+  index('idx_auctions_status').on(t.status),
+  index('idx_auctions_consignor').on(t.consignorId),
+  index('idx_auctions_guarantor').on(t.guarantorId),
+  index('idx_auctions_cat_status').on(t.category, t.status),
+  // Auction.category = kategori real (5 nilai). 'ALL' tidak berlaku di sini.
+  check('chk_auctions_category', sql`${t.category} IN ('OTOMOTIF','PROPERTI','ELEKTRONIK','AKSESORIS_HOBI','PERHIASAN')`),
+  check('chk_auctions_currency', sql`${t.currency} IN ('USDC')`),
+  check('chk_auctions_status', sql`${t.status} IN ('CREATED','PENDING','REJECTED','CANCELED','SCHEDULED','OPEN','CLOSED','AWARDING','COLLECTION','CLAIM_PERIOD','SETTLED','PASSED_IN','WITHDRAWN')`),
+  check('chk_auctions_current_round', sql`${t.currentRound} >= 1`),
+]);
 
 export const auctionRounds = pgTable('auction_rounds', {
   auctionId: uuid('auction_id').notNull().references(() => auctions.id),
   roundNo: smallint('round_no').notNull(),
-  startingBid: bigint('starting_bid', { mode: 'number' }).notNull(),
-  bidIncrement: bigint('bid_increment', { mode: 'number' }).notNull(),
+  startingBid: bigint('starting_bid', { mode: 'bigint' }).notNull(),
+  bidIncrement: bigint('bid_increment', { mode: 'bigint' }).notNull(),
   scheduledAt: timestamp('scheduled_at', { withTimezone: true }),
   openAt: timestamp('open_at', { withTimezone: true }).notNull(),
   durationHours: smallint('duration_hours').notNull(),
   closeAt: timestamp('close_at', { withTimezone: true }).notNull(),
-  outcome: text('outcome'), // AWARDED, PASSED_IN
+  outcome: text('outcome'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => {
-  return {
-    pk: uniqueIndex('pk_auction_rounds').on(table.auctionId, table.roundNo),
-  };
-});
+}, (t) => [
+  primaryKey({ name: 'pk_auction_rounds', columns: [t.auctionId, t.roundNo] }),
+  check('chk_rounds_starting_bid', sql`${t.startingBid} > 0`),
+  // ref: ParalelAuction.sol allowedIncrements (6 nilai, termasuk 0.05 USDC).
+  check('chk_rounds_bid_increment', sql`${t.bidIncrement} IN (50000, 500000, 5000000, 50000000, 500000000, 5000000000)`),
+  check('chk_rounds_increment_ratio', sql`${t.bidIncrement} * 20 <= ${t.startingBid}`),
+  check('chk_rounds_duration', sql`${t.durationHours} BETWEEN 12 AND 48`),
+  check('chk_rounds_outcome', sql`${t.outcome} IS NULL OR ${t.outcome} IN ('AWARDED','PASSED_IN')`),
+]);
 
 export const auctionAssets = pgTable('auction_assets', {
   auctionId: uuid('auction_id').primaryKey().references(() => auctions.id),
@@ -120,7 +141,13 @@ export const auctionAssets = pgTable('auction_assets', {
   spec: jsonb('spec').notNull(),
   specHash: bytea('spec_hash').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  check('chk_assets_condition', sql`${t.condition} IN ('NEW','LIKE_NEW','GOOD','FAIR','DAMAGED')`),
+  check('chk_assets_doc_type', sql`${t.documentType} IN ('CERTIFICATE','INVOICE')`),
+  check('chk_assets_damaged_notes', sql`${t.condition} <> 'DAMAGED' OR ${t.conditionNotes} IS NOT NULL`),
+  check('chk_assets_docnum_nul', sql`${t.documentNumber} <> 'NUL' OR ${t.documentType} = 'INVOICE'`),
+  check('chk_assets_chassis_not_nul', sql`${t.chassisNumber} IS NULL OR ${t.chassisNumber} <> 'NUL'`),
+]);
 
 export const auctionFiles = pgTable('auction_files', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -132,15 +159,18 @@ export const auctionFiles = pgTable('auction_files', {
   mime: text('mime').notNull(),
   width: integer('width'),
   height: integer('height'),
-  sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
+  sizeBytes: bigint('size_bytes', { mode: 'bigint' }).notNull(),
   contentHash: bytea('content_hash').notNull(),
   storageUrl: text('storage_url').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  check('chk_files_kind', sql`${t.kind} IN ('PHOTO','DOCUMENT_SCAN')`),
+  check('chk_files_photo_position', sql`${t.kind} <> 'PHOTO' OR ${t.position} BETWEEN 1 AND 5`),
+  uniqueIndex('uq_auction_photo_slot').on(t.auctionId, t.position).where(sql`kind = 'PHOTO'`),
+]);
 
-// ==========================================
-// D3. ALUR, KONFIRMASI & TANDA TANGAN
-// ==========================================
+// ─── D3. ALUR, KONFIRMASI & TANDA TANGAN ────────────────────
+
 export const statusLog = pgTable('status_log', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
   auctionId: uuid('auction_id').notNull().references(() => auctions.id),
@@ -173,7 +203,10 @@ export const attestations = pgTable('attestations', {
   signature: bytea('signature').notNull(),
   submittedTxHash: text('submitted_tx_hash'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  check('chk_att_type', sql`${t.type} IN ('GUARANTOR_APPROVED','GUARANTOR_REJECTED','NOTARY_APPROVED','BIDDER_AWARD_SIGN','GUARANTOR_COLLECTED','GUARANTOR_WITHDRAWN','CONSIGNOR_CONFIRM','WITHDRAW_REQUEST')`),
+  check('chk_att_signer_wallet', sql`${t.signerWallet} ~ '^0x[0-9a-f]{40}$'`),
+]);
 
 export const receipts = pgTable('receipts', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -184,49 +217,52 @@ export const receipts = pgTable('receipts', {
   autoIssued: boolean('auto_issued').notNull().default(false),
   fileUrl: text('file_url').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  check('chk_receipts_type', sql`${t.type} IN ('CONSIGNMENT','COLLECTION','WITHDRAWAL')`),
+]);
 
-// ==========================================
-// D4. BID DAN AWARDING
-// ==========================================
+// ─── D4. BID DAN AWARDING ───────────────────────────────────
+
 export const bids = pgTable('bids', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
   auctionId: uuid('auction_id').notNull().references(() => auctions.id),
   roundNo: smallint('round_no').notNull(),
   phase: text('phase').notNull(),
   bidderWallet: text('bidder_wallet').notNull(),
-  amountAdded: bigint('amount_added', { mode: 'number' }).notNull(),
-  myBidAfter: bigint('my_bid_after', { mode: 'number' }).notNull(),
-  currentBidAfter: bigint('current_bid_after', { mode: 'number' }).notNull(),
-  seq: bigint('seq', { mode: 'number' }).notNull(),
-  blockNumber: bigint('block_number', { mode: 'number' }).notNull(),
+  amountAdded: bigint('amount_added', { mode: 'bigint' }).notNull(),
+  myBidAfter: bigint('my_bid_after', { mode: 'bigint' }).notNull(),
+  currentBidAfter: bigint('current_bid_after', { mode: 'bigint' }).notNull(),
+  seq: bigint('seq', { mode: 'bigint' }).notNull(),
+  blockNumber: bigint('block_number', { mode: 'bigint' }).notNull(),
   txIndex: integer('tx_index').notNull(),
   logIndex: integer('log_index').notNull(),
   blockTs: timestamp('block_ts', { withTimezone: true }).notNull(),
   txHash: text('tx_hash').notNull(),
-  clientMs: bigint('client_ms', { mode: 'number' }),
+  clientMs: bigint('client_ms', { mode: 'bigint' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => {
-  return {
-    txLogIdx: uniqueIndex('idx_bids_tx_log').on(table.txHash, table.logIndex),
-  };
-});
+}, (t) => [
+  uniqueIndex('idx_bids_tx_log').on(t.txHash, t.logIndex),
+  check('chk_bids_phase', sql`${t.phase} IN ('PRE_BID','LIVE_BID')`),
+  check('chk_bids_bidder_wallet', sql`${t.bidderWallet} ~ '^0x[0-9a-f]{40}$'`),
+]);
 
 export const bidderStakes = pgTable('bidder_stakes', {
   auctionId: uuid('auction_id').notNull().references(() => auctions.id),
   roundNo: smallint('round_no').notNull(),
   bidderWallet: text('bidder_wallet').notNull(),
-  myBid: bigint('my_bid', { mode: 'number' }).notNull(),
-  reachedSeq: bigint('reached_seq', { mode: 'number' }).notNull(),
+  myBid: bigint('my_bid', { mode: 'bigint' }).notNull(),
+  reachedSeq: bigint('reached_seq', { mode: 'bigint' }).notNull(),
   rank: smallint('rank'),
   status: text('status').notNull(),
   refundClaimedTx: text('refund_claimed_tx'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => {
-  return {
-    pk: uniqueIndex('pk_bidder_stakes').on(table.auctionId, table.roundNo, table.bidderWallet),
-  };
-});
+}, (t) => [
+  primaryKey({ name: 'pk_bidder_stakes', columns: [t.auctionId, t.roundNo, t.bidderWallet] }),
+  check('chk_stakes_rank', sql`${t.rank} IS NULL OR ${t.rank} BETWEEN 1 AND 10`),
+  check('chk_stakes_status', sql`${t.status} IN ('ACTIVE','PROVISIONAL','DEFAULTED','WINNER','REFUNDABLE','REFUNDED')`),
+  check('chk_stakes_bidder_wallet', sql`${t.bidderWallet} ~ '^0x[0-9a-f]{40}$'`),
+]);
 
 export const awardingAttempts = pgTable('awarding_attempts', {
   auctionId: uuid('auction_id').notNull().references(() => auctions.id),
@@ -237,17 +273,17 @@ export const awardingAttempts = pgTable('awarding_attempts', {
   deadlineAt: timestamp('deadline_at', { withTimezone: true }).notNull(),
   result: text('result').notNull(),
   signedAt: timestamp('signed_at', { withTimezone: true }),
-  defaultFee: bigint('default_fee', { mode: 'number' }),
+  defaultFee: bigint('default_fee', { mode: 'bigint' }),
   attestationId: uuid('attestation_id').references(() => attestations.id),
-}, (table) => {
-  return {
-    pk: uniqueIndex('pk_awarding_attempts').on(table.auctionId, table.roundNo, table.rank),
-  };
-});
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ name: 'pk_awarding_attempts', columns: [t.auctionId, t.roundNo, t.rank] }),
+  check('chk_awd_rank', sql`${t.rank} BETWEEN 1 AND 10`),
+  check('chk_awd_result', sql`${t.result} IN ('PENDING','SIGNED','DEFAULTED')`),
+]);
 
-// ==========================================
-// D5. UANG
-// ==========================================
+// ─── D5. UANG ───────────────────────────────────────────────
+
 export const payouts = pgTable('payouts', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
   auctionId: uuid('auction_id').notNull().references(() => auctions.id),
@@ -255,10 +291,14 @@ export const payouts = pgTable('payouts', {
   kind: text('kind').notNull(),
   recipientRole: text('recipient_role').notNull(),
   recipientWallet: text('recipient_wallet').notNull(),
-  amount: bigint('amount', { mode: 'number' }).notNull(),
+  amount: bigint('amount', { mode: 'bigint' }).notNull(),
   txHash: text('tx_hash').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  check('chk_payout_kind', sql`${t.kind} IN ('SETTLED','DEFAULT_FEE')`),
+  check('chk_payout_role', sql`${t.recipientRole} IN ('PLATFORM','GUARANTOR','NOTARY','TAX','CONSIGNOR')`),
+  check('chk_payout_wallet', sql`${t.recipientWallet} ~ '^0x[0-9a-f]{40}$'`),
+]);
 
 export const withdrawals = pgTable('withdrawals', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
@@ -266,17 +306,21 @@ export const withdrawals = pgTable('withdrawals', {
   roundNo: smallint('round_no'),
   wallet: text('wallet').notNull(),
   kind: text('kind').notNull(),
-  grossAmount: bigint('gross_amount', { mode: 'number' }).notNull(),
-  withdrawFee: bigint('withdraw_fee', { mode: 'number' }).notNull(),
-  netAmount: bigint('net_amount', { mode: 'number' }).notNull(),
+  grossAmount: bigint('gross_amount', { mode: 'bigint' }).notNull(),
+  withdrawFee: bigint('withdraw_fee', { mode: 'bigint' }).notNull(),
+  netAmount: bigint('net_amount', { mode: 'bigint' }).notNull(),
   relayed: boolean('relayed').notNull(),
   txHash: text('tx_hash').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  check('chk_wd_kind', sql`${t.kind} IN ('REFUND','CONSIGNOR_PAYOUT','FEE_BALANCE')`),
+  check('chk_wd_wallet', sql`${t.wallet} ~ '^0x[0-9a-f]{40}$'`),
+  check('chk_wd_fee_le_gross', sql`${t.withdrawFee} <= ${t.grossAmount}`),
+  check('chk_wd_net_eq', sql`${t.netAmount} = ${t.grossAmount} - ${t.withdrawFee}`),
+]);
 
-// ==========================================
-// D6. FEED DAN NOTIFIKASI
-// ==========================================
+// ─── D6. FEED DAN NOTIFIKASI ────────────────────────────────
+
 export const notifications = pgTable('notifications', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
   userId: uuid('user_id').notNull().references(() => users.id),
@@ -287,7 +331,10 @@ export const notifications = pgTable('notifications', {
   status: text('status').notNull(),
   sentAt: timestamp('sent_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  check('chk_notif_channel', sql`${t.channel} IN ('TELEGRAM','EMAIL','WEB')`),
+  check('chk_notif_status', sql`${t.status} IN ('QUEUED','SENT','FAILED')`),
+]);
 
 export const feedPosts = pgTable('feed_posts', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
@@ -297,15 +344,17 @@ export const feedPosts = pgTable('feed_posts', {
   channel: text('channel').notNull(),
   externalId: text('external_id'),
   postedAt: timestamp('posted_at', { withTimezone: true }).notNull(),
-});
+}, (t) => [
+  check('chk_feed_kind', sql`${t.kind} IN ('UPCOMING','OPEN','CLOSED')`),
+  check('chk_feed_channel', sql`${t.channel} IN ('APP','X','TELEGRAM')`),
+]);
 
-// ==========================================
-// D7. INDEXER
-// ==========================================
+// ─── D7. INDEXER ────────────────────────────────────────────
+
 export const chainEvents = pgTable('chain_events', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
   chainId: integer('chain_id').notNull(),
-  blockNumber: bigint('block_number', { mode: 'number' }).notNull(),
+  blockNumber: bigint('block_number', { mode: 'bigint' }).notNull(),
   blockTs: timestamp('block_ts', { withTimezone: true }).notNull(),
   txHash: text('tx_hash').notNull(),
   logIndex: integer('log_index').notNull(),
@@ -313,8 +362,6 @@ export const chainEvents = pgTable('chain_events', {
   args: jsonb('args').notNull(),
   processed: boolean('processed').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => {
-  return {
-    txLogIdx: uniqueIndex('idx_chain_events_tx_log').on(table.chainId, table.txHash, table.logIndex),
-  };
-});
+}, (t) => [
+  uniqueIndex('idx_chain_events_tx_log').on(t.chainId, t.txHash, t.logIndex),
+]);

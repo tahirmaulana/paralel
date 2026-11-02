@@ -4,7 +4,7 @@
 
 ## Header
 
-- Commit: `b3a78da5f9cea2579d8e7b6c7a2d17eef37a8b63`
+- Commit: `78c4b538e784b6375c7a0d1594da0fb864071c02`
 - Node: `v24.21.0`
 - Package manager: `npm`
 - Foundry: `forge Version: 1.8.7`
@@ -56,7 +56,8 @@
 │   ├── test/
 │   │   ├── mocks/
 │   │   │   └── MockERC20.sol
-│   │   └── ParalelAuction.t.sol
+│   │   ├── ParalelAuction.t.sol
+│   │   └── ParalelAuctionAudit.t.sol
 │   ├── foundry.toml
 │   └── README.md
 ├── docs/
@@ -66,12 +67,26 @@
 │   └── WALLET_OPERATIONS.md
 ├── packages/
 │   └── db/
+│       ├── drizzle/
+│       │   ├── meta/
+│       │   │   ├── _journal.json
+│       │   │   └── 0000_snapshot.json
+│       │   └── 0000_curly_bill_hollister.sql
 │       └── src/
 │           ├── index.ts
-│           └── schema.ts
+│           ├── schema.ts
+│           ├── seed-partners.ts
+│           ├── seed.ts
+│           ├── triggers.sql
+│           └── types-seed.ts
 ├── scripts/
-│   └── context/
-│       └── build.ts
+│   ├── context/
+│   │   └── build.ts
+│   ├── db-check.ts
+│   ├── db-inspect.ts
+│   ├── db-migrations.ts
+│   ├── db-reset.ts
+│   └── db-run-sql.ts
 ├── workers/
 │   └── indexer/
 │       ├── src/
@@ -93,91 +108,91 @@
 
 ## Gap analysis
 
-Total: DONE=61 STUB=0 MISSING=247
+Total: DONE=83 STUB=0 MISSING=225
 
 ### `docs/CONTRACT_SPEC.md`
-- [DONE] `placeBid` (function) — ref `docs/CONTRACT_SPEC.md:21` · `contracts/src/ParalelAuction.sol:314`
+- [DONE] `placeBid` (function) — ref `docs/CONTRACT_SPEC.md:21` · `contracts/src/ParalelAuction.sol:355`
 - [MISSING] `relayerWallet` (unknown) — ref `docs/CONTRACT_SPEC.md:22`
-- [DONE] `setPartner` (function) — ref `docs/CONTRACT_SPEC.md:23` · `contracts/src/ParalelAuction.sol:218`
-- [MISSING] `setRelayer` (unknown) — ref `docs/CONTRACT_SPEC.md:23`
-- [MISSING] `transferOwnership` (unknown) — ref `docs/CONTRACT_SPEC.md:23`
-- [DONE] `withdrawClaimable` (function) — ref `docs/CONTRACT_SPEC.md:24` · `contracts/src/ParalelAuction.sol:540`
+- [DONE] `setPartner` (function) — ref `docs/CONTRACT_SPEC.md:23` · `contracts/src/ParalelAuction.sol:247`
+- [DONE] `setRelayer` (function) — ref `docs/CONTRACT_SPEC.md:23` · `contracts/src/ParalelAuction.sol:251`
+- [DONE] `transferOwnership` (function) — ref `docs/CONTRACT_SPEC.md:23` · `contracts/src/ParalelAuction.sol:255`
+- [DONE] `withdrawClaimable` (function) — ref `docs/CONTRACT_SPEC.md:24` · `contracts/src/ParalelAuction.sol:599`
 - [MISSING] `SCHEDULED` (unknown) — ref `docs/CONTRACT_SPEC.md:33`
 - [MISSING] `WITHDRAWN` (unknown) — ref `docs/CONTRACT_SPEC.md:33`
 - [MISSING] `OPEN` (unknown) — ref `docs/CONTRACT_SPEC.md:34`
 - [MISSING] `CLOSED` (unknown) — ref `docs/CONTRACT_SPEC.md:34`
-- [DONE] `registerAuction` (function) — ref `docs/CONTRACT_SPEC.md:36` · `contracts/src/ParalelAuction.sol:222`
+- [DONE] `registerAuction` (function) — ref `docs/CONTRACT_SPEC.md:36` · `contracts/src/ParalelAuction.sol:260`
 - [MISSING] `NotaryApproval` (unknown) — ref `docs/CONTRACT_SPEC.md:38`
 - [MISSING] `ConsignorConfirm` (unknown) — ref `docs/CONTRACT_SPEC.md:38`
 - [MISSING] `bidIncrement` (unknown) — ref `docs/CONTRACT_SPEC.md:42`
 - [MISSING] `durationHours` (unknown) — ref `docs/CONTRACT_SPEC.md:43`
 - [MISSING] `openAt` (unknown) — ref `docs/CONTRACT_SPEC.md:43`
-- [DONE] `AuctionRegistered` (event) — ref `docs/CONTRACT_SPEC.md:46` · `contracts/src/ParalelAuction.sol:124`
-- [DONE] `RoundScheduled` (event) — ref `docs/CONTRACT_SPEC.md:46` · `contracts/src/ParalelAuction.sol:125`
-- [DONE] `placeBidWithPermit` (function) — ref `docs/CONTRACT_SPEC.md:48` · `contracts/src/ParalelAuction.sol:318`
+- [DONE] `AuctionRegistered` (event) — ref `docs/CONTRACT_SPEC.md:46` · `contracts/src/ParalelAuction.sol:128`
+- [DONE] `RoundScheduled` (event) — ref `docs/CONTRACT_SPEC.md:46` · `contracts/src/ParalelAuction.sol:129`
+- [DONE] `placeBidWithPermit` (function) — ref `docs/CONTRACT_SPEC.md:48` · `contracts/src/ParalelAuction.sol:359`
 - [MISSING] `topRanks` (unknown) — ref `docs/CONTRACT_SPEC.md:60`
 - [MISSING] `myBid` (unknown) — ref `docs/CONTRACT_SPEC.md:60`
 - [MISSING] `reachedSeq` (unknown) — ref `docs/CONTRACT_SPEC.md:60`
 - [MISSING] `currentBid` (unknown) — ref `docs/CONTRACT_SPEC.md:61`
 - [MISSING] `closeAt` (unknown) — ref `docs/CONTRACT_SPEC.md:63`
-- [DONE] `startAwarding` (function) — ref `docs/CONTRACT_SPEC.md:65` · `contracts/src/ParalelAuction.sol:357`
-- [DONE] `PassedIn` (event) — ref `docs/CONTRACT_SPEC.md:69` · `contracts/src/ParalelAuction.sol:131`
+- [DONE] `startAwarding` (function) — ref `docs/CONTRACT_SPEC.md:65` · `contracts/src/ParalelAuction.sol:398`
+- [DONE] `PassedIn` (event) — ref `docs/CONTRACT_SPEC.md:69` · `contracts/src/ParalelAuction.sol:135`
 - [MISSING] `AWARDING` (unknown) — ref `docs/CONTRACT_SPEC.md:70`
-- [DONE] `Closed` (event) — ref `docs/CONTRACT_SPEC.md:71` · `contracts/src/ParalelAuction.sol:127`
-- [DONE] `submitAwardSignature` (function) — ref `docs/CONTRACT_SPEC.md:73` · `contracts/src/ParalelAuction.sol:377`
+- [DONE] `Closed` (event) — ref `docs/CONTRACT_SPEC.md:71` · `contracts/src/ParalelAuction.sol:131`
+- [DONE] `submitAwardSignature` (function) — ref `docs/CONTRACT_SPEC.md:73` · `contracts/src/ParalelAuction.sol:420`
 - [MISSING] `AwardSign` (unknown) — ref `docs/CONTRACT_SPEC.md:74`
 - [MISSING] `COLLECTION` (unknown) — ref `docs/CONTRACT_SPEC.md:76`
-- [DONE] `AwardSigned` (event) — ref `docs/CONTRACT_SPEC.md:77` · `contracts/src/ParalelAuction.sol:129`
-- [DONE] `advanceCandidate` (function) — ref `docs/CONTRACT_SPEC.md:79` · `contracts/src/ParalelAuction.sol:397`
-- [DONE] `AwardingStarted` (event) — ref `docs/CONTRACT_SPEC.md:85` · `contracts/src/ParalelAuction.sol:128`
-- [DONE] `Collected` (event) — ref `docs/CONTRACT_SPEC.md:88` · `contracts/src/ParalelAuction.sol:132`
-- [DONE] `ClaimPeriodStarted` (event) — ref `docs/CONTRACT_SPEC.md:91` · `contracts/src/ParalelAuction.sol:133`
-- [DONE] `expireCollection` (function) — ref `docs/CONTRACT_SPEC.md:93` · `contracts/src/ParalelAuction.sol:448`
+- [DONE] `AwardSigned` (event) — ref `docs/CONTRACT_SPEC.md:77` · `contracts/src/ParalelAuction.sol:133`
+- [DONE] `advanceCandidate` (function) — ref `docs/CONTRACT_SPEC.md:79` · `contracts/src/ParalelAuction.sol:441`
+- [DONE] `AwardingStarted` (event) — ref `docs/CONTRACT_SPEC.md:85` · `contracts/src/ParalelAuction.sol:132`
+- [DONE] `Collected` (event) — ref `docs/CONTRACT_SPEC.md:88` · `contracts/src/ParalelAuction.sol:136`
+- [DONE] `ClaimPeriodStarted` (event) — ref `docs/CONTRACT_SPEC.md:91` · `contracts/src/ParalelAuction.sol:137`
+- [DONE] `expireCollection` (function) — ref `docs/CONTRACT_SPEC.md:93` · `contracts/src/ParalelAuction.sol:497`
 - [MISSING] `collectionDeadline` (unknown) — ref `docs/CONTRACT_SPEC.md:96`
-- [DONE] `withdrawRefund` (function) — ref `docs/CONTRACT_SPEC.md:99` · `contracts/src/ParalelAuction.sol:461`
+- [DONE] `withdrawRefund` (function) — ref `docs/CONTRACT_SPEC.md:99` · `contracts/src/ParalelAuction.sol:510`
 - [MISSING] `WithdrawRequest` (unknown) — ref `docs/CONTRACT_SPEC.md:100`
-- [DONE] `withdrawConsignor` (function) — ref `docs/CONTRACT_SPEC.md:114` · `contracts/src/ParalelAuction.sol:506`
+- [DONE] `withdrawConsignor` (function) — ref `docs/CONTRACT_SPEC.md:114` · `contracts/src/ParalelAuction.sol:560`
 - [MISSING] `winnerStake` (unknown) — ref `docs/CONTRACT_SPEC.md:118`
 - [MISSING] `taxWallet` (unknown) — ref `docs/CONTRACT_SPEC.md:119`
 - [MISSING] `SETTLED` (unknown) — ref `docs/CONTRACT_SPEC.md:121`
-- [DONE] `Settled` (event) — ref `docs/CONTRACT_SPEC.md:122` · `contracts/src/ParalelAuction.sol:137`
-- [DONE] `FeeCredited` (event) — ref `docs/CONTRACT_SPEC.md:122` · `contracts/src/ParalelAuction.sol:135`
-- [DONE] `reuseRound` (function) — ref `docs/CONTRACT_SPEC.md:131` · `contracts/src/ParalelAuction.sol:265`
-- [DONE] `markWithdrawn` (function) — ref `docs/CONTRACT_SPEC.md:137` · `contracts/src/ParalelAuction.sol:300`
+- [DONE] `Settled` (event) — ref `docs/CONTRACT_SPEC.md:122` · `contracts/src/ParalelAuction.sol:141`
+- [DONE] `FeeCredited` (event) — ref `docs/CONTRACT_SPEC.md:122` · `contracts/src/ParalelAuction.sol:139`
+- [DONE] `reuseRound` (function) — ref `docs/CONTRACT_SPEC.md:131` · `contracts/src/ParalelAuction.sol:305`
+- [DONE] `markWithdrawn` (function) — ref `docs/CONTRACT_SPEC.md:137` · `contracts/src/ParalelAuction.sol:341`
 - [MISSING] `Withdrawn` (unknown) — ref `docs/CONTRACT_SPEC.md:138`
-- [DONE] `WithdrawnItem` (event) — ref `docs/CONTRACT_SPEC.md:141` · `contracts/src/ParalelAuction.sol:134`
-- [DONE] `statusOf` (function) — ref `docs/CONTRACT_SPEC.md:144` · `contracts/src/ParalelAuction.sol:196`
-- [MISSING] `getAuction` (unknown) — ref `docs/CONTRACT_SPEC.md:144`
-- [MISSING] `getRound` (unknown) — ref `docs/CONTRACT_SPEC.md:144`
-- [MISSING] `getTopRanks` (unknown) — ref `docs/CONTRACT_SPEC.md:144`
-- [MISSING] `getStake` (unknown) — ref `docs/CONTRACT_SPEC.md:144`
-- [DONE] `BidPlaced` (event) — ref `docs/CONTRACT_SPEC.md:151` · `contracts/src/ParalelAuction.sol:126`
-- [DONE] `Defaulted` (event) — ref `docs/CONTRACT_SPEC.md:151` · `contracts/src/ParalelAuction.sol:130`
-- [DONE] `Withdrawal` (event) — ref `docs/CONTRACT_SPEC.md:151` · `contracts/src/ParalelAuction.sol:136`
+- [DONE] `WithdrawnItem` (event) — ref `docs/CONTRACT_SPEC.md:141` · `contracts/src/ParalelAuction.sol:138`
+- [DONE] `statusOf` (function) — ref `docs/CONTRACT_SPEC.md:144` · `contracts/src/ParalelAuction.sol:203`
+- [DONE] `getAuction` (function) — ref `docs/CONTRACT_SPEC.md:144` · `contracts/src/ParalelAuction.sol:214`
+- [DONE] `getRound` (function) — ref `docs/CONTRACT_SPEC.md:144` · `contracts/src/ParalelAuction.sol:218`
+- [DONE] `getTopRanks` (function) — ref `docs/CONTRACT_SPEC.md:144` · `contracts/src/ParalelAuction.sol:222`
+- [DONE] `getStake` (function) — ref `docs/CONTRACT_SPEC.md:144` · `contracts/src/ParalelAuction.sol:226`
+- [DONE] `BidPlaced` (event) — ref `docs/CONTRACT_SPEC.md:151` · `contracts/src/ParalelAuction.sol:130`
+- [DONE] `Defaulted` (event) — ref `docs/CONTRACT_SPEC.md:151` · `contracts/src/ParalelAuction.sol:134`
+- [DONE] `Withdrawal` (event) — ref `docs/CONTRACT_SPEC.md:151` · `contracts/src/ParalelAuction.sol:140`
 - [MISSING] `auctionKey` (unknown) — ref `docs/CONTRACT_SPEC.md:151`
 - [MISSING] `roundNo` (unknown) — ref `docs/CONTRACT_SPEC.md:151`
-- [DONE] `NotRelayer` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:143`
-- [DONE] `NotOwner` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:142`
-- [DONE] `PartnerNotRegistered` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:144`
-- [DONE] `AuctionExists` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:145`
-- [DONE] `InvalidIncrement` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:146`
-- [DONE] `IncrementTooLarge` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:147`
-- [DONE] `InvalidDuration` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:148`
-- [DONE] `InvalidOpenTime` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:149`
-- [DONE] `BadSignature` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:156`
-- [MISSING] `SignatureExpired` (unknown) — ref `docs/CONTRACT_SPEC.md:155`
-- [MISSING] `NonceUsed` (unknown) — ref `docs/CONTRACT_SPEC.md:155`
-- [DONE] `AuctionNotBiddable` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:150`
-- [DONE] `BiddingClosed` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:151`
-- [DONE] `ConsignorCannotBid` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:152`
-- [DONE] `NotMultipleOfIncrement` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:153`
-- [DONE] `TooEarly` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:154`
-- [DONE] `WrongPhase` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:155`
-- [MISSING] `NotCurrentCandidate` (unknown) — ref `docs/CONTRACT_SPEC.md:155`
-- [DONE] `AlreadyWithdrawn` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:158`
-- [DONE] `NotRefundable` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:159`
-- [DONE] `WinnerCannotWithdraw` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:160`
-- [DONE] `NothingToClaim` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:161`
+- [DONE] `NotRelayer` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:147`
+- [DONE] `NotOwner` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:146`
+- [DONE] `PartnerNotRegistered` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:148`
+- [DONE] `AuctionExists` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:149`
+- [DONE] `InvalidIncrement` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:150`
+- [DONE] `IncrementTooLarge` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:151`
+- [DONE] `InvalidDuration` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:152`
+- [DONE] `InvalidOpenTime` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:153`
+- [DONE] `BadSignature` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:160`
+- [DONE] `SignatureExpired` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:166`
+- [DONE] `NonceUsed` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:167`
+- [DONE] `AuctionNotBiddable` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:154`
+- [DONE] `BiddingClosed` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:155`
+- [DONE] `ConsignorCannotBid` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:156`
+- [DONE] `NotMultipleOfIncrement` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:157`
+- [DONE] `TooEarly` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:158`
+- [DONE] `WrongPhase` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:159`
+- [DONE] `NotCurrentCandidate` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:168`
+- [DONE] `AlreadyWithdrawn` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:162`
+- [DONE] `NotRefundable` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:163`
+- [DONE] `WinnerCannotWithdraw` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:164`
+- [DONE] `NothingToClaim` (error) — ref `docs/CONTRACT_SPEC.md:155` · `contracts/src/ParalelAuction.sol:165`
 - [MISSING] `currentLeader` (unknown) — ref `docs/CONTRACT_SPEC.md:160`
 - [MISSING] `awardingDeadline` (unknown) — ref `docs/CONTRACT_SPEC.md:175`
 - [MISSING] `claimPeriodEnd` (unknown) — ref `docs/CONTRACT_SPEC.md:177`
@@ -209,8 +224,8 @@ Total: DONE=61 STUB=0 MISSING=247
 - [MISSING] `NUMERIC` (unknown) — ref `docs/PARALEL.md:386`
 - [MISSING] `client_ms` (unknown) — ref `docs/PARALEL.md:387`
 - [MISSING] `updated_at` (unknown) — ref `docs/PARALEL.md:392`
-- [MISSING] `status_log` (unknown) — ref `docs/PARALEL.md:393`
-- [MISSING] `chain_events` (unknown) — ref `docs/PARALEL.md:393`
+- [DONE] `status_log` (table) — ref `docs/PARALEL.md:393` · `packages/db/drizzle/0000_curly_bill_hollister.sql:272`
+- [DONE] `chain_events` (table) — ref `docs/PARALEL.md:393` · `packages/db/drizzle/0000_curly_bill_hollister.sql:152`
 - [MISSING] `user_type` (unknown) — ref `docs/PARALEL.md:406`
 - [MISSING] `PUBLIC` (unknown) — ref `docs/PARALEL.md:406`
 - [MISSING] `NOTARY` (unknown) — ref `docs/PARALEL.md:406`
@@ -219,7 +234,7 @@ Total: DONE=61 STUB=0 MISSING=247
 - [MISSING] `preferred_language` (unknown) — ref `docs/PARALEL.md:408`
 - [MISSING] `telegram_chat_id` (unknown) — ref `docs/PARALEL.md:409`
 - [MISSING] `created_at` (unknown) — ref `docs/PARALEL.md:410`
-- [MISSING] `kyc_profiles` (unknown) — ref `docs/PARALEL.md:412`
+- [DONE] `kyc_profiles` (table) — ref `docs/PARALEL.md:412` · `packages/db/drizzle/0000_curly_bill_hollister.sql:198`
 - [MISSING] `user_id` (unknown) — ref `docs/PARALEL.md:417`
 - [MISSING] `full_name` (unknown) — ref `docs/PARALEL.md:418`
 - [MISSING] `face_verified` (unknown) — ref `docs/PARALEL.md:421`
@@ -233,7 +248,7 @@ Total: DONE=61 STUB=0 MISSING=247
 - [MISSING] `ACCSSTORE` (unknown) — ref `docs/PARALEL.md:435`
 - [MISSING] `GOLDJEWELRY` (unknown) — ref `docs/PARALEL.md:435`
 - [MISSING] `GREENPROPERTY` (unknown) — ref `docs/PARALEL.md:435`
-- [MISSING] `auction_rounds` (unknown) — ref `docs/PARALEL.md:446`
+- [DONE] `auction_rounds` (table) — ref `docs/PARALEL.md:446` · `packages/db/drizzle/0000_curly_bill_hollister.sql:53`
 - [MISSING] `auction_code` (unknown) — ref `docs/PARALEL.md:451`
 - [MISSING] `consignor_id` (unknown) — ref `docs/PARALEL.md:452`
 - [MISSING] `guarantor_id` (unknown) — ref `docs/PARALEL.md:453`
@@ -260,7 +275,7 @@ Total: DONE=61 STUB=0 MISSING=247
 - [MISSING] `duration_hours` (unknown) — ref `docs/PARALEL.md:480`
 - [MISSING] `close_at` (unknown) — ref `docs/PARALEL.md:481`
 - [MISSING] `AWARDED` (unknown) — ref `docs/PARALEL.md:482`
-- [MISSING] `auction_assets` (unknown) — ref `docs/PARALEL.md:489`
+- [DONE] `auction_assets` (table) — ref `docs/PARALEL.md:489` · `packages/db/drizzle/0000_curly_bill_hollister.sql:15`
 - [MISSING] `condition_notes` (unknown) — ref `docs/PARALEL.md:498`
 - [MISSING] `spec_hash` (unknown) — ref `docs/PARALEL.md:504`
 - [MISSING] `REJECTED` (unknown) — ref `docs/PARALEL.md:510`
@@ -277,7 +292,7 @@ Total: DONE=61 STUB=0 MISSING=247
 - [MISSING] `jewelryType` (unknown) — ref `docs/PARALEL.md:535`
 - [MISSING] `metalType` (unknown) — ref `docs/PARALEL.md:536`
 - [MISSING] `weightGram` (unknown) — ref `docs/PARALEL.md:538`
-- [MISSING] `auction_files` (unknown) — ref `docs/PARALEL.md:548`
+- [DONE] `auction_files` (table) — ref `docs/PARALEL.md:548` · `packages/db/drizzle/0000_curly_bill_hollister.sql:35`
 - [MISSING] `PHOTO` (unknown) — ref `docs/PARALEL.md:555`
 - [MISSING] `size_bytes` (unknown) — ref `docs/PARALEL.md:561`
 - [MISSING] `content_hash` (unknown) — ref `docs/PARALEL.md:562`
@@ -287,7 +302,7 @@ Total: DONE=61 STUB=0 MISSING=247
 - [MISSING] `to_status` (unknown) — ref `docs/PARALEL.md:580`
 - [MISSING] `actor_user_id` (unknown) — ref `docs/PARALEL.md:581`
 - [MISSING] `tx_hash` (unknown) — ref `docs/PARALEL.md:583`
-- [MISSING] `confirmation_codes` (unknown) — ref `docs/PARALEL.md:586`
+- [DONE] `confirmation_codes` (table) — ref `docs/PARALEL.md:586` · `packages/db/drizzle/0000_curly_bill_hollister.sql:165`
 - [MISSING] `code_hash` (unknown) — ref `docs/PARALEL.md:592`
 - [MISSING] `issued_by_notary` (unknown) — ref `docs/PARALEL.md:593`
 - [MISSING] `emailed_at` (unknown) — ref `docs/PARALEL.md:595`
@@ -308,7 +323,7 @@ Total: DONE=61 STUB=0 MISSING=247
 - [MISSING] `tx_index` (unknown) — ref `docs/PARALEL.md:646`
 - [MISSING] `log_index` (unknown) — ref `docs/PARALEL.md:647`
 - [MISSING] `block_ts` (unknown) — ref `docs/PARALEL.md:648`
-- [MISSING] `bidder_stakes` (unknown) — ref `docs/PARALEL.md:654`
+- [DONE] `bidder_stakes` (table) — ref `docs/PARALEL.md:654` · `packages/db/drizzle/0000_curly_bill_hollister.sql:114`
 - [MISSING] `my_bid` (unknown) — ref `docs/PARALEL.md:662`
 - [MISSING] `reached_seq` (unknown) — ref `docs/PARALEL.md:663`
 - [MISSING] `ACTIVE` (unknown) — ref `docs/PARALEL.md:665`
@@ -319,14 +334,14 @@ Total: DONE=61 STUB=0 MISSING=247
 - [MISSING] `REFUNDED` (unknown) — ref `docs/PARALEL.md:665`
 - [MISSING] `refund_claimed_tx` (unknown) — ref `docs/PARALEL.md:666`
 - [MISSING] `CLOSED` (unknown) — ref `docs/PARALEL.md:669`
-- [MISSING] `awarding_attempts` (unknown) — ref `docs/PARALEL.md:671`
+- [DONE] `awarding_attempts` (table) — ref `docs/PARALEL.md:671` · `packages/db/drizzle/0000_curly_bill_hollister.sql:97`
 - [MISSING] `request_sent_at` (unknown) — ref `docs/PARALEL.md:680`
 - [MISSING] `deadline_at` (unknown) — ref `docs/PARALEL.md:681`
 - [MISSING] `SIGNED` (unknown) — ref `docs/PARALEL.md:682`
 - [MISSING] `signed_at` (unknown) — ref `docs/PARALEL.md:683`
 - [MISSING] `default_fee` (unknown) — ref `docs/PARALEL.md:684`
 - [MISSING] `attestation_id` (unknown) — ref `docs/PARALEL.md:685`
-- [MISSING] `fee_config` (unknown) — ref `docs/PARALEL.md:693`
+- [DONE] `fee_config` (table) — ref `docs/PARALEL.md:693` · `packages/db/drizzle/0000_curly_bill_hollister.sql:175`
 - [MISSING] `platform_bps` (unknown) — ref `docs/PARALEL.md:698`
 - [MISSING] `guarantor_bps` (unknown) — ref `docs/PARALEL.md:699`
 - [MISSING] `notary_bps` (unknown) — ref `docs/PARALEL.md:700`
@@ -347,19 +362,19 @@ Total: DONE=61 STUB=0 MISSING=247
 - [MISSING] `QUEUED` (unknown) — ref `docs/PARALEL.md:756`
 - [MISSING] `SENT` (unknown) — ref `docs/PARALEL.md:756`
 - [MISSING] `sent_at` (unknown) — ref `docs/PARALEL.md:757`
-- [MISSING] `feed_posts` (unknown) — ref `docs/PARALEL.md:762`
+- [DONE] `feed_posts` (table) — ref `docs/PARALEL.md:762` · `packages/db/drizzle/0000_curly_bill_hollister.sql:186`
 - [MISSING] `UPCOMING` (unknown) — ref `docs/PARALEL.md:769`
 - [MISSING] `APP` (unknown) — ref `docs/PARALEL.md:770`
 - [MISSING] `external_id` (unknown) — ref `docs/PARALEL.md:771`
 - [MISSING] `posted_at` (unknown) — ref `docs/PARALEL.md:772`
 - [MISSING] `chain_id` (unknown) — ref `docs/PARALEL.md:785`
 - [MISSING] `event_name` (unknown) — ref `docs/PARALEL.md:790`
-- [DONE] `AuctionRegistered` (event) — ref `docs/PARALEL.md:790` · `contracts/src/ParalelAuction.sol:124`
-- [DONE] `BidPlaced` (event) — ref `docs/PARALEL.md:790` · `contracts/src/ParalelAuction.sol:126`
-- [DONE] `AwardingStarted` (event) — ref `docs/PARALEL.md:790` · `contracts/src/ParalelAuction.sol:128`
-- [DONE] `Defaulted` (event) — ref `docs/PARALEL.md:790` · `contracts/src/ParalelAuction.sol:130`
-- [DONE] `Collected` (event) — ref `docs/PARALEL.md:790` · `contracts/src/ParalelAuction.sol:132`
-- [DONE] `Settled` (event) — ref `docs/PARALEL.md:790` · `contracts/src/ParalelAuction.sol:137`
+- [DONE] `AuctionRegistered` (event) — ref `docs/PARALEL.md:790` · `contracts/src/ParalelAuction.sol:128`
+- [DONE] `BidPlaced` (event) — ref `docs/PARALEL.md:790` · `contracts/src/ParalelAuction.sol:130`
+- [DONE] `AwardingStarted` (event) — ref `docs/PARALEL.md:790` · `contracts/src/ParalelAuction.sol:132`
+- [DONE] `Defaulted` (event) — ref `docs/PARALEL.md:790` · `contracts/src/ParalelAuction.sol:134`
+- [DONE] `Collected` (event) — ref `docs/PARALEL.md:790` · `contracts/src/ParalelAuction.sol:136`
+- [DONE] `Settled` (event) — ref `docs/PARALEL.md:790` · `contracts/src/ParalelAuction.sol:141`
 - [MISSING] `AWARDING` (unknown) — ref `docs/PARALEL.md:814`
 - [MISSING] `platformWallet` (unknown) — ref `docs/PARALEL.md:834`
 - [MISSING] `taxWallet` (unknown) — ref `docs/PARALEL.md:834`
@@ -389,14 +404,14 @@ Total: DONE=61 STUB=0 MISSING=247
 - [MISSING] `collectionDeadline` (unknown) — ref `docs/PARALEL.md:871`
 - [MISSING] `claimPeriodEnd` (unknown) — ref `docs/PARALEL.md:872`
 - [MISSING] `Stake` (unknown) — ref `docs/PARALEL.md:874`
-- [DONE] `RoundScheduled` (event) — ref `docs/PARALEL.md:883` · `contracts/src/ParalelAuction.sol:125`
-- [DONE] `Closed` (event) — ref `docs/PARALEL.md:883` · `contracts/src/ParalelAuction.sol:127`
-- [DONE] `AwardSigned` (event) — ref `docs/PARALEL.md:883` · `contracts/src/ParalelAuction.sol:129`
-- [DONE] `PassedIn` (event) — ref `docs/PARALEL.md:883` · `contracts/src/ParalelAuction.sol:131`
-- [DONE] `ClaimPeriodStarted` (event) — ref `docs/PARALEL.md:883` · `contracts/src/ParalelAuction.sol:133`
-- [DONE] `WithdrawnItem` (event) — ref `docs/PARALEL.md:883` · `contracts/src/ParalelAuction.sol:134`
-- [DONE] `FeeCredited` (event) — ref `docs/PARALEL.md:883` · `contracts/src/ParalelAuction.sol:135`
-- [DONE] `Withdrawal` (event) — ref `docs/PARALEL.md:883` · `contracts/src/ParalelAuction.sol:136`
+- [DONE] `RoundScheduled` (event) — ref `docs/PARALEL.md:883` · `contracts/src/ParalelAuction.sol:129`
+- [DONE] `Closed` (event) — ref `docs/PARALEL.md:883` · `contracts/src/ParalelAuction.sol:131`
+- [DONE] `AwardSigned` (event) — ref `docs/PARALEL.md:883` · `contracts/src/ParalelAuction.sol:133`
+- [DONE] `PassedIn` (event) — ref `docs/PARALEL.md:883` · `contracts/src/ParalelAuction.sol:135`
+- [DONE] `ClaimPeriodStarted` (event) — ref `docs/PARALEL.md:883` · `contracts/src/ParalelAuction.sol:137`
+- [DONE] `WithdrawnItem` (event) — ref `docs/PARALEL.md:883` · `contracts/src/ParalelAuction.sol:138`
+- [DONE] `FeeCredited` (event) — ref `docs/PARALEL.md:883` · `contracts/src/ParalelAuction.sol:139`
+- [DONE] `Withdrawal` (event) — ref `docs/PARALEL.md:883` · `contracts/src/ParalelAuction.sol:140`
 - [MISSING] `NotaryApproval` (unknown) — ref `docs/PARALEL.md:897`
 - [MISSING] `ConsignorConfirm` (unknown) — ref `docs/PARALEL.md:898`
 - [MISSING] `AwardSign` (unknown) — ref `docs/PARALEL.md:899`
@@ -404,8 +419,8 @@ Total: DONE=61 STUB=0 MISSING=247
 - [MISSING] `Withdrawn` (unknown) — ref `docs/PARALEL.md:901`
 
 ### `docs/TECH_STACK.md`
-- [MISSING] `chain_events` (unknown) — ref `docs/TECH_STACK.md:94`
-- [MISSING] `bidder_stakes` (unknown) — ref `docs/TECH_STACK.md:94`
+- [DONE] `chain_events` (table) — ref `docs/TECH_STACK.md:94` · `packages/db/drizzle/0000_curly_bill_hollister.sql:152`
+- [DONE] `bidder_stakes` (table) — ref `docs/TECH_STACK.md:94` · `packages/db/drizzle/0000_curly_bill_hollister.sql:114`
 - [MISSING] `NUL` (unknown) — ref `docs/TECH_STACK.md:104`
 - [MISSING] `document_number` (unknown) — ref `docs/TECH_STACK.md:104`
 

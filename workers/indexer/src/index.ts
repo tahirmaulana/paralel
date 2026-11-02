@@ -1,4 +1,4 @@
-// @file workers/indexer/src/index.ts — Core indexer logic to sync smart contract events to Neon
+// @file workers/indexer/src/index.ts — fetch event + process handlers
 import { createPublicClient, http } from 'viem';
 import { arbitrumSepolia } from 'viem/chains';
 import { drizzle } from 'drizzle-orm/neon-http';
@@ -7,6 +7,7 @@ import { chainEvents } from '../../../packages/db/src/schema';
 import { desc } from 'drizzle-orm';
 import { Env } from './types';
 import abi from './abi.json';
+import { processEvents } from './process';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -19,60 +20,59 @@ export default {
         transport: http(env.ARBITRUM_RPC_URL),
       });
 
-      // 1. Cari block terakhir dari database
+      // Pakai `finalized` — block yang tidak akan re-org.
+      const finalizedBlock = await client.getBlock({ blockTag: 'finalized' });
+      const latestBlock = finalizedBlock.number;
+
       const latestEvent = await db.select({ blockNumber: chainEvents.blockNumber })
         .from(chainEvents)
         .orderBy(desc(chainEvents.blockNumber))
         .limit(1);
 
-      const latestBlock = await client.getBlockNumber();
-      const fromBlock = latestEvent.length > 0 ? BigInt(latestEvent[0].blockNumber) + 1n : latestBlock - 100n;
+      const fromBlock = latestEvent.length > 0
+        ? latestEvent[0].blockNumber + 1n
+        : latestBlock - 100n;
 
-      if (fromBlock > latestBlock) {
-        return new Response(JSON.stringify({ 
-          message: 'Indexer is up to date', 
-          latestBlock: latestBlock.toString() 
-        }), { status: 200 });
+      let insertedCount = 0;
+      if (fromBlock <= latestBlock) {
+        const logs = await client.getContractEvents({
+          address: env.AUCTION_CONTRACT_ADDRESS,
+          abi: abi as any,
+          fromBlock,
+          toBlock: latestBlock,
+        });
+
+        if (logs.length > 0) {
+          const eventsToInsert = await Promise.all(logs.map(async (log: any) => {
+            const block = await client.getBlock({ blockNumber: log.blockNumber });
+            const safeArgs = JSON.parse(JSON.stringify(log.args, (_k, v) =>
+              typeof v === 'bigint' ? v.toString() : v
+            ));
+            return {
+              chainId: arbitrumSepolia.id,
+              blockNumber: log.blockNumber,
+              blockTs: new Date(Number(block.timestamp) * 1000),
+              txHash: log.transactionHash,
+              logIndex: log.logIndex,
+              eventName: log.eventName,
+              args: safeArgs,
+              processed: false,
+            };
+          }));
+          await db.insert(chainEvents).values(eventsToInsert).onConflictDoNothing();
+          insertedCount = eventsToInsert.length;
+        }
       }
 
-      // 2. Ambil log (event) dari Smart Contract menggunakan ABI JSON secara langsung
-      const logs = await client.getContractEvents({
-        address: env.AUCTION_CONTRACT_ADDRESS,
-        abi: abi as any, // Casting ke any untuk menghindari error tipe viem JSON ABI
-        fromBlock: fromBlock,
-        toBlock: latestBlock,
-      });
+      const result = await processEvents(db, client);
 
-      // 3. Simpan ke Database
-      if (logs.length > 0) {
-        const eventsToInsert = await Promise.all(logs.map(async (log: any) => {
-          const block = await client.getBlock({ blockNumber: log.blockNumber });
-          
-          // Ubah BigInt menjadi String agar aman disimpan di JSONB Postgres
-          const safeArgs = JSON.parse(JSON.stringify(log.args, (key, value) =>
-            typeof value === 'bigint' ? value.toString() : value
-          ));
-
-          return {
-            chainId: arbitrumSepolia.id,
-            blockNumber: Number(log.blockNumber),
-            blockTs: new Date(Number(block.timestamp) * 1000),
-            txHash: log.transactionHash,
-            logIndex: log.logIndex,
-            eventName: log.eventName,
-            args: safeArgs,
-            processed: false,
-          };
-        }));
-
-        await db.insert(chainEvents).values(eventsToInsert).onConflictDoNothing();
-      }
-
-      return new Response(JSON.stringify({ 
-        message: 'Indexer run successful', 
-        fromBlock: fromBlock.toString(), 
-        toBlock: latestBlock.toString(), 
-        eventsProcessed: logs.length 
+      return new Response(JSON.stringify({
+        message: 'Indexer run successful',
+        fromBlock: fromBlock.toString(),
+        toBlock: latestBlock.toString(),
+        fetched: insertedCount,
+        processed: result.processed,
+        failed: result.failed,
       }), { status: 200 });
 
     } catch (error: any) {
