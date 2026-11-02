@@ -4,7 +4,7 @@
 
 ## Header
 
-- Commit: `f3b54243d3114c904e18c96e72c27d3dd2fb3690`
+- Commit: `53dd61d516baf60e385813111003876b06c24cd2`
 - Node: `v24.21.0`
 - Package manager: `npm`
 - Foundry: `forge Version: 1.8.7`
@@ -30,10 +30,11 @@
 │       │   └── window.svg
 │       ├── src/
 │       │   └── app/
+│       │       ├── abi.json
 │       │       ├── favicon.ico
 │       │       ├── globals.css
 │       │       ├── layout.tsx
-│       │       ├── page.tsx  — Landing page to test wallet connection
+│       │       ├── page.tsx
 │       │       └── providers.tsx
 │       ├── .gitignore
 │       ├── AGENTS.md
@@ -46,6 +47,7 @@
 ├── contracts/
 │   ├── script/
 │   │   ├── Deploy.s.sol
+│   │   ├── RegisterDummy.s.sol
 │   │   └── Setup.s.sol
 │   ├── src/
 │   │   ├── interfaces/
