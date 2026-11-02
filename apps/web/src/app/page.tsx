@@ -7,8 +7,10 @@ import { parseUnits, parseGwei } from 'viem';
 import { arbitrumSepolia } from 'wagmi/chains';
 import abiData from './abi.json';
 
-const CONTRACT_ADDRESS = "0x70b7f8096c02147274E6477d2B4F6398a910bEAb";
+// UPDATE: Alamat Kontrak Baru (Hasil Deploy terakhir)
+const CONTRACT_ADDRESS = "0x80db02BfB4d0163a2dbd7f096178BF7AE5A66d2c";
 const USDC_ADDRESS = "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d"; 
+// UPDATE: AUCTION_KEY baru dari output RegisterDummy
 const AUCTION_KEY = "0xa1d89d31c362a32af02565e4c5182512b37ef8a680d856d70b3d932b6221e0e1"; 
 
 const erc20Abi = [
@@ -28,7 +30,6 @@ export default function Home() {
 
   const { data: bidHash, writeContract: writeBid, isPending: isBidPending, error: bidError } = useWriteContract();
   
-  // TAMBAHKAN isError dari useWaitForTransactionReceipt
   const { isLoading: isBidConfirming, isSuccess: isBidConfirmed, isError: isBidTxError } = useWaitForTransactionReceipt({ hash: bidHash });
   
   const { signTypedDataAsync } = useSignTypedData();
@@ -100,15 +101,14 @@ export default function Home() {
       let v = parseInt(signature.slice(130, 132), 16);
       if (v < 27) v += 27;
 
-      // KIRIM TRANSAKSI DENGAN GAS MANUAL (Bypass bug MetaMask)
       writeBid({
         address: CONTRACT_ADDRESS, 
         abi: abiData.abi, 
         functionName: 'placeBidWithPermit',
         args: [AUCTION_KEY, 1, amount, deadline, v, r, s],
-        gas: BigInt(1500000), // Paksa gas limit 1.5 juta
-        maxFeePerGas: parseGwei('0.1'), // Paksa biaya max 0.1 Gwei
-        maxPriorityFeePerGas: parseGwei('0.01'), // Tip 0.01 Gwei
+        gas: BigInt(1500000),
+        maxFeePerGas: parseGwei('0.1'),
+        maxPriorityFeePerGas: parseGwei('0.01'),
       });
 
     } catch (err: any) {

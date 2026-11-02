@@ -38,22 +38,29 @@ contract ParalelAuctionTest is Test {
     function _registerHelper() internal {
         bytes32 specHash = keccak256(abi.encodePacked("SPEC-1"));
         uint64 openAt = uint64(block.timestamp + 49 hours);
+        uint256 currentExpiry = block.timestamp + 1 days;
         
-        bytes32 notaryHash = keccak256(abi.encode(auction.NOTARY_APPROVAL_TYPEHASH(), auctionKey, confHash));
+        uint128 startBid = 1000e6;
+        uint128 inc = 5e6;
+        uint16 dur = 24;
+
+        bytes32 paramsHash = keccak256(abi.encode(startBid, inc, openAt, dur));
+        bytes32 notaryHash = keccak256(abi.encode(auction.NOTARY_APPROVAL_TYPEHASH(), auctionKey, paramsHash, confHash, uint256(0), currentExpiry));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", auction.DOMAIN_SEPARATOR(), notaryHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(notaryKey, digest);
         bytes memory notarySig = abi.encodePacked(r, s, v);
 
-        bytes32 consHash = keccak256(abi.encode(auction.CONSIGNOR_CONFIRM_TYPEHASH(), auctionKey, confHash));
+        bytes32 consHash = keccak256(abi.encode(auction.CONSIGNOR_CONFIRM_TYPEHASH(), auctionKey, confHash, uint256(0), currentExpiry));
         digest = keccak256(abi.encodePacked("\x19\x01", auction.DOMAIN_SEPARATOR(), consHash));
         (v, r, s) = vm.sign(consignorKey, digest);
         bytes memory consignorSig = abi.encodePacked(r, s, v);
 
         ParalelAuction.RegisterAuctionParams memory p = ParalelAuction.RegisterAuctionParams({
             auctionKey: auctionKey, consignor: consignor, guarantor: guarantor, notary: notary,
-            category: 1, specHash: specHash, startingBid: 1000e6, bidIncrement: 5e6,
-            openAt: openAt, durationHours: 24, platformBps: 250, guarantorBps: 150, notaryBps: 100, taxBps: 1000,
-            confirmationCodeHash: confHash, notarySig: notarySig, consignorSig: consignorSig
+            category: 1, specHash: specHash, startingBid: startBid, bidIncrement: inc,
+            openAt: openAt, durationHours: dur, platformBps: 250, guarantorBps: 150, notaryBps: 100, taxBps: 1000,
+            confirmationCodeHash: confHash, notarySig: notarySig, consignorSig: consignorSig,
+            notaryNonce: 0, notaryExpiry: currentExpiry, consignorNonce: 0, consignorExpiry: currentExpiry
         });
 
         vm.prank(relayer);
@@ -71,71 +78,70 @@ contract ParalelAuctionTest is Test {
 
     function test_RegisterAuction() public {
         _registerHelper();
-        (address c, address g, address n, , , , , , , , ) = auction.auctions(auctionKey);
-        assertEq(c, consignor);
-        assertEq(g, guarantor);
-        assertEq(n, notary);
+        ParalelAuction.Auction memory a = auction.getAuction(auctionKey);
+        assertEq(a.consignor, consignor);
+        assertEq(a.guarantor, guarantor);
+        assertEq(a.notary, notary);
     }
 
     function test_PlaceBid() public {
         _registerHelper();
         _placeBidHelper();
         
-        (uint128 myBid, uint64 reachedSeq, bool withdrawn) = auction.stakes(auctionKey, 1, bidder);
-        assertEq(myBid, 1010e6, "myBid incorrect");
-        assertEq(reachedSeq, 0, "seq incorrect");
-        assertEq(withdrawn, false);
+        ParalelAuction.Stake memory s = auction.getStake(auctionKey, 1, bidder);
+        assertEq(s.myBid, 1010e6, "myBid incorrect");
+        assertEq(s.reachedSeq, 0, "seq incorrect");
+        assertEq(s.withdrawn, false);
 
-        (, , , , uint128 currentBid, address currentLeader, , , , , , , ) = auction.rounds(auctionKey, 1);
-        assertEq(currentBid, 1010e6, "currentBid incorrect");
-        assertEq(currentLeader, bidder, "currentLeader incorrect");
+        ParalelAuction.Round memory roundData = auction.getRound(auctionKey, 1);
+        assertEq(roundData.currentBid, 1010e6, "currentBid incorrect");
+        assertEq(roundData.currentLeader, bidder, "currentLeader incorrect");
     }
 
     function test_StartAwarding_PassedIn() public {
         _registerHelper();
-        (, , , uint64 closeAt, , , , , , , , , ) = auction.rounds(auctionKey, 1);
-        vm.warp(closeAt + 1);
+        ParalelAuction.Round memory roundData = auction.getRound(auctionKey, 1);
+        vm.warp(roundData.closeAt + 1);
 
         vm.prank(relayer);
         auction.startAwarding(auctionKey, 1);
 
-        (, , , , ParalelAuction.Status status, , , , , , ) = auction.auctions(auctionKey);
-        assertEq(uint8(status), uint8(ParalelAuction.Status.PASSED_IN));
+        ParalelAuction.Auction memory a = auction.getAuction(auctionKey);
+        assertEq(uint8(a.status), uint8(ParalelAuction.Status.PASSED_IN));
     }
 
     function test_StartAwarding_And_Sign() public {
         _registerHelper();
         _placeBidHelper();
 
-        (, , , uint64 closeAt, , , , , , , , , ) = auction.rounds(auctionKey, 1);
-        vm.warp(closeAt + 1);
+        ParalelAuction.Round memory roundData = auction.getRound(auctionKey, 1);
+        vm.warp(roundData.closeAt + 1);
 
         vm.prank(relayer);
         auction.startAwarding(auctionKey, 1);
 
-        (, , , , ParalelAuction.Status status, , , , , , ) = auction.auctions(auctionKey);
-        assertEq(uint8(status), uint8(ParalelAuction.Status.AWARDING));
-
-        bytes32 structHash = keccak256(abi.encode(auction.AWARD_SIGN_TYPEHASH(), auctionKey, uint16(1), uint8(0)));
+        uint256 currentExpiry = block.timestamp + 1 days;
+        bytes32 structHash = keccak256(abi.encode(auction.AWARD_SIGN_TYPEHASH(), auctionKey, uint16(1), uint8(0), uint256(0), currentExpiry));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", auction.DOMAIN_SEPARATOR(), structHash));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(bidderKey, digest);
+        (uint8 sigV, bytes32 sigR, bytes32 sigS) = vm.sign(bidderKey, digest);
 
         vm.prank(relayer);
-        auction.submitAwardSignature(auctionKey, 1, v, r, s);
+        auction.submitAwardSignature(auctionKey, 1, 0, currentExpiry, sigV, sigR, sigS);
 
-        (, , , , ParalelAuction.Status newStatus, , , , , , ) = auction.auctions(auctionKey);
-        assertEq(uint8(newStatus), uint8(ParalelAuction.Status.COLLECTION));
+        ParalelAuction.Auction memory a = auction.getAuction(auctionKey);
+        assertEq(uint8(a.status), uint8(ParalelAuction.Status.COLLECTION));
         
-        (, , , , , , , , , address winner, , , ) = auction.rounds(auctionKey, 1);
-        assertEq(winner, bidder);
+        // PERBAIKAN: Menggunakan roundDataAfter, bukan r2
+        ParalelAuction.Round memory roundDataAfter = auction.getRound(auctionKey, 1);
+        assertEq(roundDataAfter.winner, bidder);
     }
 
     function test_AdvanceCandidate_Defaulted() public {
         _registerHelper();
         _placeBidHelper();
 
-        (, , , uint64 closeAt, , , , , , , , , ) = auction.rounds(auctionKey, 1);
-        vm.warp(closeAt + 1);
+        ParalelAuction.Round memory roundData = auction.getRound(auctionKey, 1);
+        vm.warp(roundData.closeAt + 1);
 
         vm.prank(relayer);
         auction.startAwarding(auctionKey, 1);
@@ -145,19 +151,19 @@ contract ParalelAuctionTest is Test {
         vm.prank(relayer);
         auction.advanceCandidate(auctionKey, 1);
 
-        (, , , , ParalelAuction.Status status, , , , , , ) = auction.auctions(auctionKey);
-        assertEq(uint8(status), uint8(ParalelAuction.Status.PASSED_IN));
+        ParalelAuction.Auction memory a = auction.getAuction(auctionKey);
+        assertEq(uint8(a.status), uint8(ParalelAuction.Status.PASSED_IN));
 
-        (uint128 myBid, , ) = auction.stakes(auctionKey, 1, bidder);
-        assertEq(myBid, 959.5e6);
+        ParalelAuction.Stake memory s = auction.getStake(auctionKey, 1, bidder);
+        assertEq(s.myBid, 959.5e6);
     }
 
     function test_WithdrawRefund_PassedIn() public {
         _registerHelper();
         _placeBidHelper();
 
-        (, , , uint64 closeAt, , , , , , , , , ) = auction.rounds(auctionKey, 1);
-        vm.warp(closeAt + 1);
+        ParalelAuction.Round memory roundData = auction.getRound(auctionKey, 1);
+        vm.warp(roundData.closeAt + 1);
 
         vm.prank(relayer);
         auction.startAwarding(auctionKey, 1);
@@ -166,20 +172,19 @@ contract ParalelAuctionTest is Test {
         vm.prank(relayer);
         auction.advanceCandidate(auctionKey, 1);
 
-        bytes32 structHash = keccak256(abi.encode(auction.WITHDRAW_REQUEST_TYPEHASH(), auctionKey, uint16(1), bidder));
+        uint256 currentExpiry = block.timestamp + 1 days;
+        bytes32 structHash = keccak256(abi.encode(auction.WITHDRAW_REQUEST_TYPEHASH(), auctionKey, uint16(1), bidder, uint256(0), currentExpiry));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", auction.DOMAIN_SEPARATOR(), structHash));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(bidderKey, digest);
+        (uint8 sigV, bytes32 sigR, bytes32 sigS) = vm.sign(bidderKey, digest);
 
         uint256 balBefore = usdc.balanceOf(bidder);
         
-        // Perbaikan: Relayer yang memanggil kontrak
         vm.prank(relayer);
-        auction.withdrawRefund(auctionKey, 1, bidder, v, r, s);
+        auction.withdrawRefund(auctionKey, 1, bidder, 0, currentExpiry, sigV, sigR, sigS);
 
         uint256 balAfter = usdc.balanceOf(bidder);
         assertEq(balAfter - balBefore, 957e6, "Refund amount incorrect");
 
-        // Total claimable platform = 25.25 (dari Default Fee) + 2.5 (dari Withdrawal Fee)
-        assertEq(auction.claimable(platform), 27.75e6, "Platform claimable incorrect");
+        assertEq(auction.claimableOf(platform), 27.75e6, "Platform claimable incorrect");
     }
 }

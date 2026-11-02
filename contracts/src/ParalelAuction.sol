@@ -1,4 +1,4 @@
-// @file contracts/src/ParalelAuction.sol — Core auction contract: bids, awarding, settlement, and pull-payments
+// @file contracts/src/ParalelAuction.sol — Core auction contract
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
@@ -13,9 +13,9 @@ contract ParalelAuction {
     uint256 public constant COLLECTION_WINDOW = 48 hours;
     uint256 public constant CLAIM_WINDOW = 168 hours;
     uint128 public constant WITHDRAW_FEE = 2.5e6; 
-    uint16 public constant DEFAULT_FEE_BPS = 500;
-
-    uint128[5] public allowedIncrements = [500000, 5000000, 50000000, 500000000, 5000000000];
+    
+    // PERUBAHAN: Menjadi 6 opsi (dimulai dari 0.05 USDC)
+    uint128[6] public allowedIncrements = [50000, 500000, 5000000, 50000000, 500000000, 5000000000];
 
     // ==========================================
     // ENUMS & STRUCTS
@@ -88,6 +88,10 @@ contract ParalelAuction {
         bytes32 confirmationCodeHash;
         bytes notarySig;
         bytes consignorSig;
+        uint256 notaryNonce;
+        uint256 notaryExpiry;
+        uint256 consignorNonce;
+        uint256 consignorExpiry;
     }
 
     // ==========================================
@@ -111,17 +115,17 @@ contract ParalelAuction {
     // EIP-712 DOMAIN
     // ==========================================
     bytes32 public immutable DOMAIN_SEPARATOR;
-    bytes32 public constant NOTARY_APPROVAL_TYPEHASH = keccak256("NotaryApproval(bytes32 auctionKey,bytes32 confirmationCodeHash)");
-    bytes32 public constant CONSIGNOR_CONFIRM_TYPEHASH = keccak256("ConsignorConfirm(bytes32 auctionKey,bytes32 confirmationCodeHash)");
-    bytes32 public constant AWARD_SIGN_TYPEHASH = keccak256("AwardSign(bytes32 auctionKey,uint16 roundNo,uint8 rank)");
-    bytes32 public constant COLLECTED_TYPEHASH = keccak256("Collected(bytes32 auctionKey,uint16 roundNo)");
-    bytes32 public constant WITHDRAWN_TYPEHASH = keccak256("Withdrawn(bytes32 auctionKey,uint16 roundNo)");
-    bytes32 public constant WITHDRAW_REQUEST_TYPEHASH = keccak256("WithdrawRequest(bytes32 auctionKey,uint16 roundNo,address wallet)");
+    bytes32 public constant NOTARY_APPROVAL_TYPEHASH = keccak256("NotaryApproval(bytes32 auctionKey,bytes32 paramsHash,bytes32 confirmationCodeHash,uint256 nonce,uint256 expiry)");
+    bytes32 public constant CONSIGNOR_CONFIRM_TYPEHASH = keccak256("ConsignorConfirm(bytes32 auctionKey,bytes32 confirmationCodeHash,uint256 nonce,uint256 expiry)");
+    bytes32 public constant AWARD_SIGN_TYPEHASH = keccak256("AwardSign(bytes32 auctionKey,uint16 roundNo,uint8 rank,uint256 nonce,uint256 expiry)");
+    bytes32 public constant COLLECTED_TYPEHASH = keccak256("Collected(bytes32 auctionKey,uint16 roundNo,uint256 nonce,uint256 expiry)");
+    bytes32 public constant WITHDRAWN_TYPEHASH = keccak256("Withdrawn(bytes32 auctionKey,uint16 roundNo,uint256 nonce,uint256 expiry)");
+    bytes32 public constant WITHDRAW_REQUEST_TYPEHASH = keccak256("WithdrawRequest(bytes32 auctionKey,uint16 roundNo,address wallet,uint256 nonce,uint256 expiry)");
 
     // ==========================================
     // EVENTS
     // ==========================================
-    event AuctionRegistered(bytes32 indexed auctionKey, address consignor, address guarantor, address notary, bytes32 specHash);
+    event AuctionRegistered(bytes32 indexed auctionKey, address consignor, address guarantor, address notary, bytes32 specHash, uint128 startingBid, uint128 bidIncrement, uint64 openAt, uint16 durationHours);
     event RoundScheduled(bytes32 indexed auctionKey, uint16 roundNo, uint128 startingBid, uint128 bidIncrement, uint64 openAt, uint64 closeAt);
     event BidPlaced(bytes32 indexed auctionKey, uint16 roundNo, address indexed bidder, uint128 added, uint128 myBidAfter, uint128 currentBidAfter, uint64 seq, bool isPreBid);
     event Closed(bytes32 indexed auctionKey, uint16 roundNo);
@@ -159,6 +163,9 @@ contract ParalelAuction {
     error NotRefundable();
     error WinnerCannotWithdraw();
     error NothingToClaim();
+    error SignatureExpired();
+    error NonceUsed();
+    error NotCurrentCandidate();
 
     modifier onlyOwner() { if (msg.sender != owner) revert NotOwner(); _; }
     modifier onlyRelayer() { if (msg.sender != relayerWallet) revert NotRelayer(); _; }
@@ -191,15 +198,37 @@ contract ParalelAuction {
     }
 
     // ==========================================
-    // VIEW FUNCTIONS (§3.1, §3.14)
+    // VIEW FUNCTIONS 
     // ==========================================
-    function statusOf(bytes32 auctionKey, uint16 roundNo) public view returns (Status) {
+    function statusOf(bytes32 auctionKey) public view returns (Status) {
         Auction storage a = auctions[auctionKey];
-        Round storage r = rounds[auctionKey][roundNo];
+        Round storage r = rounds[auctionKey][a.currentRound];
         
-        if (a.status == Status.SCHEDULED && block.timestamp >= r.openAt) return Status.OPEN;
-        if (a.status == Status.SCHEDULED && block.timestamp >= r.closeAt) return Status.CLOSED;
+        if (a.status == Status.SCHEDULED) {
+            if (block.timestamp >= r.closeAt) return Status.CLOSED;
+            if (block.timestamp >= r.openAt) return Status.OPEN;
+        }
         return a.status;
+    }
+
+    function getAuction(bytes32 auctionKey) external view returns (Auction memory) {
+        return auctions[auctionKey];
+    }
+
+    function getRound(bytes32 auctionKey, uint16 roundNo) external view returns (Round memory) {
+        return rounds[auctionKey][roundNo];
+    }
+
+    function getTopRanks(bytes32 auctionKey, uint16 roundNo) external view returns (address[10] memory) {
+        return rounds[auctionKey][roundNo].topRanks;
+    }
+
+    function getStake(bytes32 auctionKey, uint16 roundNo, address bidder) external view returns (Stake memory) {
+        return stakes[auctionKey][roundNo][bidder];
+    }
+
+    function claimableOf(address wallet) external view returns (uint128) {
+        return claimable[wallet];
     }
 
     function refundableOf(bytes32 auctionKey, uint16 roundNo, address bidder) external view returns (uint128 gross, uint128 fee, uint128 net) {
@@ -219,6 +248,15 @@ contract ParalelAuction {
         partners[wallet] = Partner(pType, category, active);
     }
 
+    function setRelayer(address newRelayer) external onlyOwner {
+        relayerWallet = newRelayer;
+    }
+
+    function transferOwnership(address newOwner) external onlyOwner {
+        if (newOwner == address(0)) revert NotOwner();
+        owner = newOwner;
+    }
+
     function registerAuction(RegisterAuctionParams calldata p) external onlyRelayer {
         if (auctions[p.auctionKey].consignor != address(0)) revert AuctionExists();
         Partner memory g = partners[p.guarantor];
@@ -228,7 +266,8 @@ contract ParalelAuction {
 
         if (p.startingBid == 0) revert InvalidIncrement();
         bool validIncrement = false;
-        for (uint i = 0; i < 5; i++) {
+        // PERUBAHAN: Loop menjadi 6
+        for (uint i = 0; i < 6; i++) {
             if (p.bidIncrement == allowedIncrements[i]) { validIncrement = true; break; }
         }
         if (!validIncrement) revert InvalidIncrement();
@@ -239,11 +278,12 @@ contract ParalelAuction {
         uint64 maxOpen = uint64(block.timestamp) + 168 hours;
         if (p.openAt < minOpen || p.openAt > maxOpen) revert InvalidOpenTime();
 
-        bytes32 notaryHash = keccak256(abi.encode(NOTARY_APPROVAL_TYPEHASH, p.auctionKey, p.confirmationCodeHash));
-        if (!_verifySig(p.notary, notaryHash, p.notarySig)) revert BadSignature();
+        bytes32 paramsHash = keccak256(abi.encode(p.startingBid, p.bidIncrement, p.openAt, p.durationHours));
+        bytes32 notaryHash = keccak256(abi.encode(NOTARY_APPROVAL_TYPEHASH, p.auctionKey, paramsHash, p.confirmationCodeHash, p.notaryNonce, p.notaryExpiry));
+        if (!_verifySig(p.notary, notaryHash, p.notaryNonce, p.notaryExpiry, p.notarySig)) revert BadSignature();
 
-        bytes32 consignorHash = keccak256(abi.encode(CONSIGNOR_CONFIRM_TYPEHASH, p.auctionKey, p.confirmationCodeHash));
-        if (!_verifySig(p.consignor, consignorHash, p.consignorSig)) revert BadSignature();
+        bytes32 consignorHash = keccak256(abi.encode(CONSIGNOR_CONFIRM_TYPEHASH, p.auctionKey, p.confirmationCodeHash, p.consignorNonce, p.consignorExpiry));
+        if (!_verifySig(p.consignor, consignorHash, p.consignorNonce, p.consignorExpiry, p.consignorSig)) revert BadSignature();
 
         auctions[p.auctionKey] = Auction({
             consignor: p.consignor, guarantor: p.guarantor, notary: p.notary, category: p.category,
@@ -258,20 +298,21 @@ contract ParalelAuction {
         r.openAt = p.openAt;
         r.closeAt = closeAt;
 
-        emit AuctionRegistered(p.auctionKey, p.consignor, p.guarantor, p.notary, p.specHash);
+        emit AuctionRegistered(p.auctionKey, p.consignor, p.guarantor, p.notary, p.specHash, p.startingBid, p.bidIncrement, p.openAt, p.durationHours);
         emit RoundScheduled(p.auctionKey, 1, p.startingBid, p.bidIncrement, p.openAt, closeAt);
     }
 
-    function reuseRound(bytes32 auctionKey, uint128 startingBid, uint128 bidIncrement, uint64 openAt, uint16 durationHours, uint8 v, bytes32 r, bytes32 s) external onlyRelayer {
+    function reuseRound(bytes32 auctionKey, uint128 startingBid, uint128 bidIncrement, uint64 openAt, uint16 durationHours, uint256 nonce, uint256 expiry, uint8 v, bytes32 r, bytes32 s) external onlyRelayer {
         Auction storage a = auctions[auctionKey];
         if (a.status != Status.PASSED_IN) revert WrongPhase();
 
-        bytes32 structHash = keccak256(abi.encode(CONSIGNOR_CONFIRM_TYPEHASH, auctionKey, bytes32(0)));
-        if (!_verifySig(a.consignor, structHash, abi.encodePacked(r, s, v))) revert BadSignature();
+        bytes32 structHash = keccak256(abi.encode(CONSIGNOR_CONFIRM_TYPEHASH, auctionKey, bytes32(0), nonce, expiry));
+        if (!_verifySig(a.consignor, structHash, nonce, expiry, abi.encodePacked(r, s, v))) revert BadSignature();
 
         if (startingBid == 0) revert InvalidIncrement();
         bool validIncrement = false;
-        for (uint i = 0; i < 5; i++) {
+        // PERUBAHAN: Loop menjadi 6
+        for (uint i = 0; i < 6; i++) {
             if (bidIncrement == allowedIncrements[i]) { validIncrement = true; break; }
         }
         if (!validIncrement) revert InvalidIncrement();
@@ -288,7 +329,7 @@ contract ParalelAuction {
         uint16 newRound = a.currentRound;
         uint64 closeAt = openAt + (uint64(durationHours) * 1 hours);
         
-        Round storage newRoundData = rounds[auctionKey][newRound]; // Fixed shadowing
+        Round storage newRoundData = rounds[auctionKey][newRound];
         newRoundData.startingBid = startingBid;
         newRoundData.bidIncrement = bidIncrement;
         newRoundData.openAt = openAt;
@@ -297,12 +338,12 @@ contract ParalelAuction {
         emit RoundScheduled(auctionKey, newRound, startingBid, bidIncrement, openAt, closeAt);
     }
 
-    function markWithdrawn(bytes32 auctionKey, uint16 roundNo, uint8 v, bytes32 r, bytes32 s) external onlyRelayer {
+    function markWithdrawn(bytes32 auctionKey, uint16 roundNo, uint256 nonce, uint256 expiry, uint8 v, bytes32 r, bytes32 s) external onlyRelayer {
         Auction storage a = auctions[auctionKey];
         if (a.status != Status.PASSED_IN) revert WrongPhase();
 
-        bytes32 structHash = keccak256(abi.encode(WITHDRAWN_TYPEHASH, auctionKey, roundNo));
-        if (!_verifySig(a.guarantor, structHash, abi.encodePacked(r, s, v))) revert BadSignature();
+        bytes32 structHash = keccak256(abi.encode(WITHDRAWN_TYPEHASH, auctionKey, roundNo, nonce, expiry));
+        if (!_verifySig(a.guarantor, structHash, nonce, expiry, abi.encodePacked(r, s, v))) revert BadSignature();
 
         a.status = Status.WITHDRAWN;
         emit WithdrawnItem(auctionKey, roundNo);
@@ -358,8 +399,10 @@ contract ParalelAuction {
         Auction storage a = auctions[auctionKey];
         Round storage r = rounds[auctionKey][roundNo];
 
+        if (roundNo != a.currentRound) revert WrongPhase();
+        if (a.status != Status.SCHEDULED) revert WrongPhase();
+
         if (block.timestamp < r.closeAt) revert TooEarly();
-        if (a.status == Status.AWARDING || a.status == Status.PASSED_IN) revert WrongPhase();
 
         emit Closed(auctionKey, roundNo);
 
@@ -374,7 +417,7 @@ contract ParalelAuction {
         }
     }
 
-    function submitAwardSignature(bytes32 auctionKey, uint16 roundNo, uint8 v, bytes32 r, bytes32 s) external onlyRelayer {
+    function submitAwardSignature(bytes32 auctionKey, uint16 roundNo, uint256 nonce, uint256 expiry, uint8 v, bytes32 r, bytes32 s) external onlyRelayer {
         Auction storage a = auctions[auctionKey];
         Round storage roundData = rounds[auctionKey][roundNo];
 
@@ -382,9 +425,10 @@ contract ParalelAuction {
         if (block.timestamp > roundData.awardingDeadline) revert TooEarly(); 
 
         address candidate = roundData.topRanks[roundData.awardingIndex];
+        if (candidate == address(0)) revert NotCurrentCandidate(); 
         
-        bytes32 structHash = keccak256(abi.encode(AWARD_SIGN_TYPEHASH, auctionKey, roundNo, roundData.awardingIndex));
-        if (!_verifySig(candidate, structHash, abi.encodePacked(r, s, v))) revert BadSignature();
+        bytes32 structHash = keccak256(abi.encode(AWARD_SIGN_TYPEHASH, auctionKey, roundNo, roundData.awardingIndex, nonce, expiry));
+        if (!_verifySig(candidate, structHash, nonce, expiry, abi.encodePacked(r, s, v))) revert NotCurrentCandidate();
 
         roundData.winner = candidate;
         roundData.winnerStake = stakes[auctionKey][roundNo][candidate].myBid;
@@ -404,16 +448,21 @@ contract ParalelAuction {
         address candidate = r.topRanks[r.awardingIndex];
         Stake storage cStake = stakes[auctionKey][roundNo][candidate];
         
-        uint128 defaultFee = (cStake.myBid * DEFAULT_FEE_BPS) / 10000;
+        uint16 dynamicDefaultFeeBps = a.platformBps + a.guarantorBps + a.notaryBps;
+        uint128 defaultFee = (cStake.myBid * dynamicDefaultFeeBps) / 10000;
         cStake.myBid -= defaultFee;
 
-        uint128 toPlatform = (defaultFee * a.platformBps) / DEFAULT_FEE_BPS;
-        uint128 toGuarantor = (defaultFee * a.guarantorBps) / DEFAULT_FEE_BPS;
-        uint128 toNotary = defaultFee - toPlatform - toGuarantor;
+        uint128 toGuarantor = (defaultFee * a.guarantorBps) / dynamicDefaultFeeBps;
+        uint128 toNotary = (defaultFee * a.notaryBps) / dynamicDefaultFeeBps;
+        uint128 toPlatform = defaultFee - toGuarantor - toNotary;
 
         claimable[platformWallet] += toPlatform;
         claimable[a.guarantor] += toGuarantor;
         claimable[a.notary] += toNotary;
+
+        emit FeeCredited(platformWallet, toPlatform);
+        emit FeeCredited(a.guarantor, toGuarantor);
+        emit FeeCredited(a.notary, toNotary);
 
         emit Defaulted(auctionKey, roundNo, candidate, defaultFee);
 
@@ -428,15 +477,15 @@ contract ParalelAuction {
         }
     }
 
-    function collected(bytes32 auctionKey, uint16 roundNo, uint8 v, bytes32 r, bytes32 s) external onlyRelayer {
+    function collected(bytes32 auctionKey, uint16 roundNo, uint256 nonce, uint256 expiry, uint8 v, bytes32 r, bytes32 s) external onlyRelayer {
         Auction storage a = auctions[auctionKey];
         Round storage roundData = rounds[auctionKey][roundNo];
         
         if (a.status != Status.COLLECTION) revert WrongPhase();
         if (block.timestamp > roundData.collectionDeadline) revert TooEarly();
 
-        bytes32 structHash = keccak256(abi.encode(COLLECTED_TYPEHASH, auctionKey, roundNo));
-        if (!_verifySig(a.guarantor, structHash, abi.encodePacked(r, s, v))) revert BadSignature();
+        bytes32 structHash = keccak256(abi.encode(COLLECTED_TYPEHASH, auctionKey, roundNo, nonce, expiry));
+        if (!_verifySig(a.guarantor, structHash, nonce, expiry, abi.encodePacked(r, s, v))) revert BadSignature();
 
         a.status = Status.CLAIM_PERIOD;
         roundData.claimPeriodEnd = uint64(block.timestamp) + uint64(CLAIM_WINDOW);
@@ -458,20 +507,22 @@ contract ParalelAuction {
         emit ClaimPeriodStarted(auctionKey, roundNo, true);
     }
 
-    function withdrawRefund(bytes32 auctionKey, uint16 roundNo, address bidder, uint8 v, bytes32 r, bytes32 s) external onlyRelayer nonReentrant {
+    function withdrawRefund(bytes32 auctionKey, uint16 roundNo, address bidder, uint256 nonce, uint256 expiry, uint8 v, bytes32 r, bytes32 s) external onlyRelayer nonReentrant {
         Auction storage a = auctions[auctionKey];
         Round storage roundData = rounds[auctionKey][roundNo];
-        Stake storage bidderStake = stakes[auctionKey][roundNo][bidder]; // Gunakan parameter bidder
+        Stake storage bidderStake = stakes[auctionKey][roundNo][bidder];
 
-        bytes32 structHash = keccak256(abi.encode(WITHDRAW_REQUEST_TYPEHASH, auctionKey, roundNo, bidder));
-        if (!_verifySig(bidder, structHash, abi.encodePacked(r, s, v))) revert BadSignature();
+        bytes32 structHash = keccak256(abi.encode(WITHDRAW_REQUEST_TYPEHASH, auctionKey, roundNo, bidder, nonce, expiry));
+        if (!_verifySig(bidder, structHash, nonce, expiry, abi.encodePacked(r, s, v))) revert BadSignature();
 
         if (bidderStake.myBid == 0) revert NothingToClaim();
         if (bidderStake.withdrawn) revert AlreadyWithdrawn();
         if (bidder == roundData.winner) revert WinnerCannotWithdraw();
 
+        bool isClosed = block.timestamp >= roundData.closeAt;
         bool isTop10 = false;
         bool isDefaulted = false;
+        
         for (uint8 i = 0; i < 10; i++) {
             if (roundData.topRanks[i] == bidder) {
                 isTop10 = true;
@@ -480,8 +531,11 @@ contract ParalelAuction {
             }
         }
 
-        if (a.status == Status.AWARDING) {
-            if (!isDefaulted && (isTop10 || block.timestamp < roundData.closeAt)) revert TooEarly();
+        if (a.status == Status.SCHEDULED || a.status == Status.OPEN) {
+            if (!isClosed) revert TooEarly(); 
+            if (isTop10) revert NotRefundable(); 
+        } else if (a.status == Status.AWARDING) {
+            if (!isDefaulted && isTop10) revert TooEarly(); 
         } else if (a.status == Status.COLLECTION || a.status == Status.CLAIM_PERIOD || a.status == Status.SETTLED) {
             if (isTop10 && !isDefaulted) {
                 if (roundData.winner == address(0)) revert TooEarly();
@@ -498,20 +552,20 @@ contract ParalelAuction {
         uint128 net = gross - fee;
 
         if (fee > 0) claimable[platformWallet] += fee;
-        require(usdc.transfer(bidder, net), "Transfer failed"); // Transfer ke bidder
+        require(usdc.transfer(bidder, net), "Transfer failed"); 
 
         emit Withdrawal(auctionKey, roundNo, bidder, 0, gross, fee, net);
     }
 
-    function withdrawConsignor(bytes32 auctionKey, uint16 roundNo, uint8 v, bytes32 r, bytes32 s) external onlyRelayer nonReentrant {
+    function withdrawConsignor(bytes32 auctionKey, uint16 roundNo, uint256 nonce, uint256 expiry, uint8 v, bytes32 r, bytes32 s) external onlyRelayer nonReentrant {
         Auction storage a = auctions[auctionKey];
         Round storage roundData = rounds[auctionKey][roundNo];
         
         if (a.status != Status.CLAIM_PERIOD) revert WrongPhase();
         if (block.timestamp < roundData.claimPeriodEnd) revert TooEarly();
 
-        bytes32 structHash = keccak256(abi.encode(WITHDRAW_REQUEST_TYPEHASH, auctionKey, roundNo, a.consignor));
-        if (!_verifySig(a.consignor, structHash, abi.encodePacked(r, s, v))) revert BadSignature();
+        bytes32 structHash = keccak256(abi.encode(WITHDRAW_REQUEST_TYPEHASH, auctionKey, roundNo, a.consignor, nonce, expiry));
+        if (!_verifySig(a.consignor, structHash, nonce, expiry, abi.encodePacked(r, s, v))) revert BadSignature();
 
         a.status = Status.SETTLED;
         uint128 stake = roundData.winnerStake;
@@ -526,6 +580,11 @@ contract ParalelAuction {
         claimable[a.guarantor] += toGuarantor;
         claimable[a.notary] += toNotary;
         claimable[taxWallet] += toTax;
+
+        emit FeeCredited(platformWallet, toPlatform);
+        emit FeeCredited(a.guarantor, toGuarantor);
+        emit FeeCredited(a.notary, toNotary);
+        emit FeeCredited(taxWallet, toTax);
 
         uint128 fee = consignorShare < WITHDRAW_FEE ? consignorShare : WITHDRAW_FEE;
         uint128 net = consignorShare - fee;
@@ -550,7 +609,10 @@ contract ParalelAuction {
     // ==========================================
     // INTERNAL HELPERS
     // ==========================================
-    function _verifySig(address signer, bytes32 structHash, bytes memory signature) internal returns (bool) {
+    function _verifySig(address signer, bytes32 structHash, uint256 nonce, uint256 expiry, bytes memory signature) internal returns (bool) {
+        if (block.timestamp > expiry) revert SignatureExpired();
+        if (nonce != nonces[signer]) revert NonceUsed();
+
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
         if (signature.length != 65) return false;
         bytes32 r; bytes32 s; uint8 v;
@@ -561,6 +623,7 @@ contract ParalelAuction {
         }
         address recovered = ecrecover(digest, v, r, s);
         if (recovered == address(0) || recovered != signer) return false;
+        
         nonces[signer]++;
         return true;
     }
