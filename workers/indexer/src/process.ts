@@ -1,30 +1,45 @@
 // @file workers/indexer/src/process.ts
-// Dispatch event mentah dari chain_events ke handler, lalu mark processed=true.
-// Idempoten: aman dijalankan berkali-kali. Kalau gagal di tengah, event tetap
-// processed=false dan akan di-retry run berikutnya.
 import { eq, and } from 'drizzle-orm';
 import { keccak256, toBytes } from 'viem';
 import {
   chainEvents, auctions, auctionRounds, bids, bidderStakes,
-  awardingAttempts, receipts, payouts, withdrawals,
 } from '../../../packages/db/src/schema';
 
-type Db = any; // drizzle client
+type Db = any;
 
-// Cari auctions.id dari auctionKey (bytes32 keccak256(auctionCode)).
-// Pilot: brute-force match. Kalau lambat, tambah kolom auctions.auction_key.
-async function findAuctionId(db: Db, auctionKey: string): Promise<string | null> {
-  const all = await db
+// Fix #3: cache auctionKey → id per run
+async function buildAuctionMap(db: Db): Promise<Map<string, string>> {
+  const rows = await db
     .select({ id: auctions.id, auctionCode: auctions.auctionCode })
     .from(auctions);
-  for (const a of all) {
-    if (keccak256(toBytes(a.auctionCode)) === auctionKey) return a.id;
+  const map = new Map<string, string>();
+  for (const r of rows) {
+    map.set(keccak256(toBytes(r.auctionCode)), r.id);
   }
-  return null;
+  return map;
 }
 
-// Hitung rank 1..10 untuk bidder_stakes pada auction+round tertentu.
-// Aturan: my_bid DESC, reached_seq ASC. Di luar 10 → NULL.
+// Fix #4: cache block per run
+type BlockCache = Map<string, Date>;
+async function getBlockTs(client: any, blockNumber: bigint, cache: BlockCache): Promise<Date> {
+  const key = blockNumber.toString();
+  if (cache.has(key)) return cache.get(key)!;
+  const block = await client.getBlock({ blockNumber });
+  const d = new Date(Number(block.timestamp) * 1000);
+  cache.set(key, d);
+  return d;
+}
+
+// Fix #2: cache txIndex per run
+type TxCache = Map<string, number>;
+async function getTxIndex(client: any, txHash: string, cache: TxCache): Promise<number> {
+  if (cache.has(txHash)) return cache.get(txHash)!;
+  const tx = await client.getTransaction({ hash: txHash as `0x${string}` });
+  const i = tx.transactionIndex;
+  cache.set(txHash, i);
+  return i;
+}
+
 async function recomputeRanks(db: Db, auctionId: string, roundNo: number) {
   const stakes = await db
     .select({ bidderWallet: bidderStakes.bidderWallet, myBid: bidderStakes.myBid, reachedSeq: bidderStakes.reachedSeq })
@@ -50,12 +65,13 @@ async function recomputeRanks(db: Db, auctionId: string, roundNo: number) {
 
 // ─── Handlers ───────────────────────────────────────────────
 
-async function onRoundScheduled(db: Db, ev: any) {
-  const auctionId = await findAuctionId(db, ev.args.auctionKey);
-  if (!auctionId) return; // auctions row belum ada (backend belum insert)
+async function onRoundScheduled(ctx: any, ev: any) {
+  const auctionId = ctx.auctionMap.get(ev.args.auctionKey);
+  // Fix #1: throw supaya retry, jangan mark processed
+  if (!auctionId) throw new Error(`auction not found for key ${ev.args.auctionKey} (backend belum insert?)`);
+
   const roundNo = Number(ev.args.roundNo);
-  // upsert auction_rounds
-  await db.insert(auctionRounds).values({
+  await ctx.db.insert(auctionRounds).values({
     auctionId, roundNo,
     startingBid: BigInt(ev.args.startingBid),
     bidIncrement: BigInt(ev.args.bidIncrement),
@@ -66,24 +82,26 @@ async function onRoundScheduled(db: Db, ev: any) {
   }).onConflictDoNothing();
 }
 
-async function onAuctionRegistered(db: Db, ev: any) {
-  const auctionId = await findAuctionId(db, ev.args.auctionKey);
-  if (!auctionId) return;
-  await db.update(auctions).set({
+async function onAuctionRegistered(ctx: any, ev: any) {
+  const auctionId = ctx.auctionMap.get(ev.args.auctionKey);
+  if (!auctionId) throw new Error(`auction not found for key ${ev.args.auctionKey}`);
+  await ctx.db.update(auctions).set({
     status: 'SCHEDULED',
     onchainTxHash: ev.txHash,
     onchainRegisteredAt: ev.blockTs,
   }).where(eq(auctions.id, auctionId));
 }
 
-async function onBidPlaced(db: Db, ev: any) {
-  const auctionId = await findAuctionId(db, ev.args.auctionKey);
-  if (!auctionId) return;
+async function onBidPlaced(ctx: any, ev: any) {
+  const auctionId = ctx.auctionMap.get(ev.args.auctionKey);
+  if (!auctionId) throw new Error(`auction not found for key ${ev.args.auctionKey}`);
   const roundNo = Number(ev.args.roundNo);
   const bidder = ev.args.bidder.toLowerCase();
 
-  // insert bids
-  await db.insert(bids).values({
+  // Fix #2: ambil txIndex dari receipt
+  const txIndex = await getTxIndex(ctx.client, ev.txHash, ctx.txCache);
+
+  await ctx.db.insert(bids).values({
     auctionId, roundNo,
     phase: ev.args.isPreBid ? 'PRE_BID' : 'LIVE_BID',
     bidderWallet: bidder,
@@ -92,14 +110,13 @@ async function onBidPlaced(db: Db, ev: any) {
     currentBidAfter: BigInt(ev.args.currentBidAfter),
     seq: BigInt(ev.args.seq),
     blockNumber: BigInt(ev.blockNumber),
-    txIndex: 0, // tidak ada di event; hanya untuk audit; seq yang menentukan urutan
+    txIndex,
     logIndex: ev.logIndex,
     blockTs: ev.blockTs,
     txHash: ev.txHash,
   }).onConflictDoNothing();
 
-  // upsert bidder_stakes
-  await db.insert(bidderStakes).values({
+  await ctx.db.insert(bidderStakes).values({
     auctionId, roundNo, bidderWallet: bidder,
     myBid: BigInt(ev.args.myBidAfter),
     reachedSeq: BigInt(ev.args.seq),
@@ -109,28 +126,29 @@ async function onBidPlaced(db: Db, ev: any) {
     set: { myBid: BigInt(ev.args.myBidAfter), reachedSeq: BigInt(ev.args.seq) },
   });
 
-  await recomputeRanks(db, auctionId, roundNo);
+  await recomputeRanks(ctx.db, auctionId, roundNo);
 }
 
-async function onClosed(db: Db, ev: any) {
-  const auctionId = await findAuctionId(db, ev.args.auctionKey);
-  if (!auctionId) return;
-  await db.update(auctions).set({ status: 'CLOSED' }).where(eq(auctions.id, auctionId));
+async function onClosed(ctx: any, ev: any) {
+  const auctionId = ctx.auctionMap.get(ev.args.auctionKey);
+  if (!auctionId) throw new Error(`auction not found for key ${ev.args.auctionKey}`);
+  await ctx.db.update(auctions).set({ status: 'CLOSED' }).where(eq(auctions.id, auctionId));
 }
 
 // ─── Dispatcher ─────────────────────────────────────────────
 
-const HANDLERS: Record<string, (db: Db, ev: any) => Promise<void>> = {
+const HANDLERS: Record<string, (ctx: any, ev: any) => Promise<void>> = {
   RoundScheduled: onRoundScheduled,
   AuctionRegistered: onAuctionRegistered,
   BidPlaced: onBidPlaced,
   Closed: onClosed,
-  // Fase 3.2 akan menambahkan:
-  // AwardingStarted, AwardSigned, Defaulted, PassedIn,
-  // Collected, ClaimPeriodStarted, WithdrawnItem, Withdrawal, Settled
 };
 
-export async function processEvents(db: Db, limit = 200): Promise<{ processed: number; failed: number }> {
+export async function processEvents(db: Db, client: any, limit = 200) {
+  const auctionMap = await buildAuctionMap(db);        // Fix #3
+  const blockCache: BlockCache = new Map();            // Fix #4
+  const txCache: TxCache = new Map();                  // Fix #2
+
   const pending = await db
     .select()
     .from(chainEvents)
@@ -141,13 +159,16 @@ export async function processEvents(db: Db, limit = 200): Promise<{ processed: n
   for (const ev of pending) {
     const h = HANDLERS[ev.eventName];
     if (!h) {
-      // Tidak ada handler (FeeCredited — derived tidak butuh). Mark processed supaya tidak nyangkut.
       await db.update(chainEvents).set({ processed: true }).where(eq(chainEvents.id, ev.id));
       ok++;
       continue;
     }
     try {
-      await h(db, ev);
+      // Fix #4: pakai cached blockTs (timpa ev.blockTs saat disimpan — sudah tersimpan
+      // di chain_events, jadi untuk handler kita pastikan blockTs akurat)
+      const blockTs = await getBlockTs(client, BigInt(ev.blockNumber), blockCache);
+      const ctx = { db, client, auctionMap, txCache };
+      await h(ctx, { ...ev, blockTs });
       await db.update(chainEvents).set({ processed: true }).where(eq(chainEvents.id, ev.id));
       ok++;
     } catch (err) {
