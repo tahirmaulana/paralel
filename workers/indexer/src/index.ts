@@ -9,7 +9,7 @@ import { Env } from './types';
 import abi from './abi.json';
 import { processEvents } from './process';
 
-// 1. Pindahkan seluruh logika ke dalam fungsi ini
+// 1. Fungsi Utama Logika Indexer
 async function runIndexer(env: Env) {
   const sqlClient = neon(env.DATABASE_URL);
   const db = drizzle(sqlClient);
@@ -19,6 +19,7 @@ async function runIndexer(env: Env) {
     transport: http(env.ARBITRUM_RPC_URL),
   });
 
+  // Pakai `finalized` — block yang tidak akan re-org.
   const finalizedBlock = await client.getBlock({ blockTag: 'finalized' });
   const latestBlock = finalizedBlock.number;
 
@@ -27,14 +28,14 @@ async function runIndexer(env: Env) {
     .orderBy(desc(chainEvents.blockNumber))
     .limit(1);
 
+  // TITIK AWAL: Block sebelum kontrak di-deploy
   const START_BLOCK = 325236150n; 
   
   let fromBlock = latestEvent.length > 0
     ? latestEvent[0].blockNumber + 1n
     : START_BLOCK;
 
-  // Kita bisa naikkan batasnya sedikit menjadi 400 blok 
-  // (40 request, masih aman di bawah batas 50 Cloudflare)
+  // BATAS PER EKSEKUSI: 400 blok (Aman dari limit Cloudflare)
   const MAX_BLOCKS_PER_RUN = 400n; 
   
   let toBlock = fromBlock + MAX_BLOCKS_PER_RUN - 1n;
@@ -45,7 +46,7 @@ async function runIndexer(env: Env) {
   let insertedCount = 0;
   
   if (fromBlock <= toBlock) {
-    const MAX_BLOCK_RANGE = 10n; 
+    const MAX_BLOCK_RANGE = 10n; // Batas Alchemy Free Tier
     let currentFrom = fromBlock;
     const allLogs: any[] = [];
     
@@ -100,9 +101,9 @@ async function runIndexer(env: Env) {
   };
 }
 
-// 2. Daftarkan Trigger (HTTP & Cron)
+// 2. Export handler (HTTP & Cron)
 export default {
-  // Ini untuk testing manual via URL
+  // Untuk testing manual
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     try {
       const res = await runIndexer(env);
@@ -113,7 +114,7 @@ export default {
     }
   },
 
-  // INI DIA AUTOPILOTNYA: Berjalan otomatis sesuai jadwal Cron
+  // AUTOPILOT: Berjalan otomatis sesuai jadwal Cron
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     try {
       const res = await runIndexer(env);
