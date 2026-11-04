@@ -5,6 +5,8 @@ compatibility_date = "2024-03-20"
 
 [vars]
 AUCTION_CONTRACT_ADDRESS = "0x80db02BfB4d0163a2dbd7f096178BF7AE5A66d2c"
+START_BLOCK = "325236150"
+MAX_BLOCK_RANGE = "100"   # Alchemy: 10 Ankr: 100
 
 [triggers]
 crons = ["* * * * *"]
