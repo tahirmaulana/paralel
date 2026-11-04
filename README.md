@@ -1,6 +1,6 @@
-# PARALEL
+# PARALEL (Pasar Aset Lelang)
 
-Prototype lelang **Web3 + RWA** (aset fisik) di **Arbitrum**, untuk pasar Indonesia. Dana bidder tetap non-custodial; kontrak pintar adalah sumber kebenaran untuk bid, stake, peringkat, dan dana. Status: spesifikasi desain final, implementasi sedang dalam progress.
+Prototype lelang **Web3 + RWA** (aset fisik) di **Arbitrum**, untuk pasar Indonesia. Dana bidder tetap non-custodial; smart contract adalah sumber kebenaran untuk bid, stake, peringkat, dan dana. Status: spesifikasi desain final, implementasi sedang dalam progress.
 
 ## Dokumen
 
