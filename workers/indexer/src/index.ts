@@ -35,15 +35,30 @@ export default {
 
       let insertedCount = 0;
       if (fromBlock <= latestBlock) {
-        const logs = await client.getContractEvents({
-          address: env.AUCTION_CONTRACT_ADDRESS,
-          abi: abi as any,
-          fromBlock,
-          toBlock: latestBlock,
-        });
+        const MAX_BLOCK_RANGE = 10n; // Batas maksimal Alchemy Free Tier
+          let currentFrom = fromBlock;
+          const allLogs: any[] = [];
+          
+         // Looping mengambil data per 10 block
+        while (currentFrom <= latestBlock) {
+          let currentTo = currentFrom + MAX_BLOCK_RANGE - 1n;
+           if (currentTo > latestBlock) currentTo = latestBlock;
 
-        if (logs.length > 0) {
-          const eventsToInsert = await Promise.all(logs.map(async (log: any) => {
+           console.log(`Fetching logs dari block ${currentFrom} sampai ${currentTo}...`);
+
+           const logs = await client.getContractEvents({
+            address: env.AUCTION_CONTRACT_ADDRESS,
+            abi: abi as any,
+            fromBlock: currentFrom,
+            toBlock: currentTo,
+          });
+
+          allLogs.push(...logs);
+          currentFrom = currentTo + 1n;
+        }
+
+        if (allLogs.length > 0) {
+          const eventsToInsert = await Promise.all(allLogs.map(async (log: any) => {
             const block = await client.getBlock({ blockNumber: log.blockNumber });
             const safeArgs = JSON.parse(JSON.stringify(log.args, (_k, v) =>
               typeof v === 'bigint' ? v.toString() : v
