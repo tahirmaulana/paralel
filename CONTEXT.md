@@ -4,7 +4,7 @@
 
 ## Header
 
-- Commit: `9a4389ea211e28283277714763d457a3d523dd4a`
+- Commit: `559f5f615f3daaf27c5a75e69cd68c495dade431`
 - Node: `v24.21.0`
 - Package manager: `npm`
 - Foundry: `forge Version: 1.8.7`
