@@ -34,7 +34,7 @@ async function runIndexer(env: Env) {
     ? latestEvent[0].blockNumber + 1n
     : START_BLOCK;
 
-  // BATAS PER EKSEKUSI: 300 blok (Aman dari limit Cloudflare)
+  // BATAS PER EKSEKUSI: 300 blok (limit gratisan Cloudflare, wkwkwk)
   const MAX_BLOCKS_PER_RUN = 300n; 
   
   let toBlock = fromBlock + MAX_BLOCKS_PER_RUN - 1n;
