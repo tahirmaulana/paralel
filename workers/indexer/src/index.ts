@@ -29,9 +29,10 @@ export default {
         .orderBy(desc(chainEvents.blockNumber))
         .limit(1);
 
+      // Mengubah titik awal ke block deploy kontrak agar menangkap semua histori
       const fromBlock = latestEvent.length > 0
         ? latestEvent[0].blockNumber + 1n
-        : latestBlock - 100n;
+        : 325238000n; // <--- changed from 100n
 
       let insertedCount = 0;
       if (fromBlock <= latestBlock) {
