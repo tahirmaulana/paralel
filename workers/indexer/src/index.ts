@@ -29,25 +29,39 @@ export default {
         .orderBy(desc(chainEvents.blockNumber))
         .limit(1);
 
-      // Mengubah titik awal ke block deploy kontrak agar menangkap semua histori
-      const fromBlock = latestEvent.length > 0
+      // TITIK AWAL: Block sebelum kontrak di-deploy (Sesuai permintaan Anda)
+      const START_BLOCK = 325236150n; 
+      
+      // Tentukan dari block mana kita mulai
+      let fromBlock = latestEvent.length > 0
         ? latestEvent[0].blockNumber + 1n
-        : 325238000n; // <--- changed from 100n
+        : START_BLOCK;
+
+      // BATAS PER EKSEKUSI: Maksimal 250 blok agar tidak kena limit Cloudflare
+      // 250 blok / 10 blok per request = 25 request (Sangat aman dari batas 50)
+      const MAX_BLOCKS_PER_RUN = 250n; 
+      
+      let toBlock = fromBlock + MAX_BLOCKS_PER_RUN - 1n;
+      if (toBlock > latestBlock) {
+        toBlock = latestBlock;
+      }
 
       let insertedCount = 0;
-      if (fromBlock <= latestBlock) {
-        const MAX_BLOCK_RANGE = 10n; // Batas maksimal Alchemy Free Tier
-          let currentFrom = fromBlock;
-          const allLogs: any[] = [];
-          
-         // Looping mengambil data per 10 block
-        while (currentFrom <= latestBlock) {
+      
+      // Jika fromBlock lebih kecil atau sama dengan toBlock, kita proses
+      if (fromBlock <= toBlock) {
+        const MAX_BLOCK_RANGE = 10n; // Batas maksimal Alchemy Free Tier per request
+        let currentFrom = fromBlock;
+        const allLogs: any[] = [];
+        
+        // Looping mengambil data per 10 block, DIBATASI sampai toBlock
+        while (currentFrom <= toBlock) {
           let currentTo = currentFrom + MAX_BLOCK_RANGE - 1n;
-           if (currentTo > latestBlock) currentTo = latestBlock;
+          if (currentTo > toBlock) currentTo = toBlock;
 
-           console.log(`Fetching logs dari block ${currentFrom} sampai ${currentTo}...`);
+          console.log(`Fetching logs dari block ${currentFrom} sampai ${currentTo}...`);
 
-           const logs = await client.getContractEvents({
+          const logs = await client.getContractEvents({
             address: env.AUCTION_CONTRACT_ADDRESS,
             abi: abi as any,
             fromBlock: currentFrom,
@@ -80,15 +94,18 @@ export default {
         }
       }
 
+      // Jalankan pemrosesan event yang sudah masuk ke database
       const result = await processEvents(db, client);
 
       return new Response(JSON.stringify({
         message: 'Indexer run successful',
         fromBlock: fromBlock.toString(),
-        toBlock: latestBlock.toString(),
+        toBlock: toBlock.toString(),
+        latestFinalizedBlock: latestBlock.toString(),
         fetched: insertedCount,
         processed: result.processed,
         failed: result.failed,
+        note: toBlock < latestBlock ? "Belum selesai. Panggil URL ini lagi untuk melanjutkan blok berikutnya." : "Sinkronisasi selesai."
       }), { status: 200 });
 
     } catch (error: any) {
