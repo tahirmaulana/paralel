@@ -1,3 +1,8 @@
+# Context Snapshot
+CONTEXT.md
+scripts/
+context.config.json
+
 # secrets
 .env
 .env.*

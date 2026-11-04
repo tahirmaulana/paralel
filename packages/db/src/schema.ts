@@ -54,7 +54,6 @@ export const partners = pgTable('partners', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   check('chk_partners_type', sql`${t.type} IN ('NOTARY','GUARANTOR')`),
-  // 'ALL' = guarantor pilot lintas kategori (keputusan desain)
   check('chk_partners_category_val', sql`${t.category} IS NULL OR ${t.category} IN ('ALL','OTOMOTIF','PROPERTI','ELEKTRONIK','AKSESORIS_HOBI','PERHIASAN')`),
   check('chk_partners_role_shape', sql`
     (${t.type} = 'GUARANTOR' AND ${t.category} IS NOT NULL AND ${t.city} IS NOT NULL)
@@ -100,7 +99,6 @@ export const auctions = pgTable('auctions', {
   index('idx_auctions_consignor').on(t.consignorId),
   index('idx_auctions_guarantor').on(t.guarantorId),
   index('idx_auctions_cat_status').on(t.category, t.status),
-  // Auction.category = kategori real (5 nilai). 'ALL' tidak berlaku di sini.
   check('chk_auctions_category', sql`${t.category} IN ('OTOMOTIF','PROPERTI','ELEKTRONIK','AKSESORIS_HOBI','PERHIASAN')`),
   check('chk_auctions_currency', sql`${t.currency} IN ('USDC')`),
   check('chk_auctions_status', sql`${t.status} IN ('CREATED','PENDING','REJECTED','CANCELED','SCHEDULED','OPEN','CLOSED','AWARDING','COLLECTION','CLAIM_PERIOD','SETTLED','PASSED_IN','WITHDRAWN')`),
@@ -121,7 +119,6 @@ export const auctionRounds = pgTable('auction_rounds', {
 }, (t) => [
   primaryKey({ name: 'pk_auction_rounds', columns: [t.auctionId, t.roundNo] }),
   check('chk_rounds_starting_bid', sql`${t.startingBid} > 0`),
-  // ref: ParalelAuction.sol allowedIncrements (6 nilai, termasuk 0.05 USDC).
   check('chk_rounds_bid_increment', sql`${t.bidIncrement} IN (50000, 500000, 5000000, 50000000, 500000000, 5000000000)`),
   check('chk_rounds_increment_ratio', sql`${t.bidIncrement} * 20 <= ${t.startingBid}`),
   check('chk_rounds_duration', sql`${t.durationHours} BETWEEN 12 AND 48`),
@@ -365,3 +362,10 @@ export const chainEvents = pgTable('chain_events', {
 }, (t) => [
   uniqueIndex('idx_chain_events_tx_log').on(t.chainId, t.txHash, t.logIndex),
 ]);
+
+// TAMBAHAN BARU: Tabel State untuk Navigasi Kursor Indexer
+export const indexerState = pgTable('indexer_state', {
+  id: text('id').primaryKey(),
+  lastScannedBlock: bigint('last_scanned_block', { mode: 'bigint' }).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

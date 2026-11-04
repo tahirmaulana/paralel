@@ -1,4 +1,4 @@
-// @file workers/indexer/src/types.ts — Environment variables for the indexer
+// @file workers/indexer/src/types.ts
 export interface Env {
   DATABASE_URL: string;
   ARBITRUM_RPC_URL: string;
