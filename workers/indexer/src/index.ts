@@ -28,15 +28,14 @@ async function runIndexer(env: Env) {
     .orderBy(desc(chainEvents.blockNumber))
     .limit(1);
 
-  // TITIK AWAL: Block sebelum kontrak di-deploy
-  const START_BLOCK = 325236150n; 
-  
+  // TITIK AWAL: Block sebelum kontrak di-deploy (terting berhasil 325915092n)
+  const START_BLOCK = 325236150n;
   let fromBlock = latestEvent.length > 0
     ? latestEvent[0].blockNumber + 1n
     : START_BLOCK;
 
-  // BATAS PER EKSEKUSI: 400 blok (Aman dari limit Cloudflare)
-  const MAX_BLOCKS_PER_RUN = 400n; 
+  // BATAS PER EKSEKUSI: 300 blok (Aman dari limit Cloudflare)
+  const MAX_BLOCKS_PER_RUN = 300n; 
   
   let toBlock = fromBlock + MAX_BLOCKS_PER_RUN - 1n;
   if (toBlock > latestBlock) {
