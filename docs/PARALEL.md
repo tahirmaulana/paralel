@@ -271,7 +271,7 @@ Lelang **PASSED_IN** bila CLOSED tanpa bid sama sekali, atau semua kandidat DEFA
 | Guarantor commission | 1.5% | wallet guarantor |
 | Notary commission | 1% | wallet notary |
 | **Total commission** | **5%** | |
-| Tax | 10% | wallet tax (disetor notary/off-chain) |
+| Tax | 10% | wallet Direktorat Jenderal Pajak RI |
 | Sisa untuk consignor | 85% | wallet consignor |
 
 - **Default fee** (kandidat DEFAULTED): 5% dengan pembagian yang sama (2.5 / 1.5 / 1), **tanpa tax**.
