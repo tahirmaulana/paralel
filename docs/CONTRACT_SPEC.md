@@ -39,7 +39,7 @@ Ini spesifikasi, bukan kode. Struktur penyimpanan: PARALEL.md Lampiran D10.
 - **Syarat:**
   - auctionKey belum terpakai.
   - guarantor dan notary terdaftar dan aktif; kategori guarantor = category.
-  - `startingBid > 0`; `bidIncrement` ∈ daftar increment (0.5 / 5 / 50 / 500 / 5,000 USDC) dan `bidIncrement × 20 ≤ startingBid` (maks 5%).
+  - `startingBid > 0`; `bidIncrement` ∈ daftar increment (0.05 / 0.5 / 5 / 50 / 500 / 5,000 USDC) dan `bidIncrement × 20 ≤ startingBid` (maks 5%).
   - `durationHours` 12–48; `openAt` ∈ [now + 48 jam, now + 168 jam].
   - kedua tanda tangan valid, belum kedaluwarsa, nonce belum dipakai; hash confirmationCode pada kedua pesan sama.
 - **Efek:** simpan Auction dan Round 1; status `SCHEDULED`; `closeAt = openAt + durasi`.

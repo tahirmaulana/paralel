@@ -4,7 +4,7 @@
 
 ## Header
 
-- Commit: `e09877bb7bee261b6be11995ae46902b5ebbc08f`
+- Commit: `c39a5f83c474e9b88eff27e281673e8481225cea`
 - Node: `v24.21.0`
 - Package manager: `npm`
 - Foundry: `forge Version: 1.8.7`
@@ -98,17 +98,13 @@
 │       └── wrangler.toml
 ├── .env.example
 ├── .gitignore
-├── }
-├── CLEAR.FullName
 ├── context.config.json
 ├── CONTEXT.md
 ├── drizzle.config.ts
-├── ForEach-Object
 ├── package-lock.json
 ├── package.json
 ├── README.md
-├── tsconfig.json
-└── Where-Object
+└── tsconfig.json
 ```
 
 ## Gap analysis

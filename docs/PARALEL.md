@@ -27,7 +27,7 @@ Konvensi dokumen:
 4. **Hanya pengambilan di lokasi** (on-site): pemenang datang ke guarantor. Tidak ada pengiriman (delivery) di prototype. Karena hanya satu cara, kata "on-site" tidak perlu ditulis di UI.
 5. **Kontrak tidak punya fungsi admin untuk menarik dana.**
 6. **Waktu on-chain** memakai block timestamp (detik). Milidetik hanya dicatat di log web-app untuk tampilan dan tidak dipakai menentukan pemenang.
-7. **Nominal uang** disimpan sebagai bilangan bulat (integer) dalam satuan terkecil token (USDC punya 6 desimal: 0.5 USDC = `500000`).
+7. **Nominal uang** disimpan sebagai bilangan bulat (integer) dalam satuan terkecil token (USDC punya 6 desimal: 0.05 USDC = `50000`).
 
 ## 3. Glosarium Istilah
 
@@ -76,10 +76,10 @@ Tidak berubah: PENDING, OPEN, CLOSED, bidder, guarantor, notary, platform.
 | Custody | **Notary** dan **Guarantor** (lihat di bawah). |
 
 ### 4.1 Notary
-1. Arbiter legal.
+1. Pejabat Lelang Kelas II / Arbiter legal.
 2. Menandatangani digital status APPROVED dari guarantor (tanda tangan ini yang membuat auctionID bisa masuk SCHEDULED) dan menerbitkan confirmationCode.
-3. Menerbitkan e-certificate legal yang ditandatangani digital sebagai **output untuk winner** (khusus otomotif dan properti): kepastian hukum bahwa kepemilikan beralih lewat lelang. Ini bukan input dari consignor.
-4. Menerbitkan kutipan pajak dan mengurus mekanisme pembayaran pajak.
+3. Menerbitkan e-certificate legal (Risalah Lelang Elektronik) yang ditandatangani digital sebagai **output untuk winner**: kepastian hukum bahwa kepemilikan beralih lewat lelang. Ini bukan input dari consignor.
+4. Menerbitkan kutipan pajak, sementara mekanisme pembayaran pajak dilakukan secara on-chain oleh smartcontract.
 
 ### 4.2 Guarantor
 1. Menjamin kondisi barang sesuai spesifikasi dan foto di auctionID.
@@ -249,7 +249,7 @@ Status akhir: **REJECTED, CANCELED, SETTLED, WITHDRAWN**. REJECTED dan CANCELED 
 
 ## 11. COLLECTION, CLAIM_PERIOD, SETTLED
 
-- **COLLECTION:** winner wajib datang ke guarantor dengan tenggat **48 jam sejak signing**. Saat winner datang, guarantor memberi status **COLLECTED** (digitally signed) dan mencetak **collectionReceipt**. Notary menerbitkan e-certificate untuk winner (otomotif/properti).
+- **COLLECTION:** winner wajib datang ke guarantor dengan tenggat **48 jam sejak signing**. Saat winner datang, guarantor memberi status **COLLECTED** (digitally signed) dan mencetak **collectionReceipt**. Notary menerbitkan e-certificate untuk winner.
 - Bila winner tidak datang dalam 48 jam: collectionReceipt **tetap otomatis tercetak** (`auto_issued`) dan auctionID masuk CLAIM_PERIOD.
 - **CLAIM_PERIOD:** masa penjaminan **168 jam (7 hari)** sejak collectionReceipt. Setelah berakhir, kerusakan atau kehilangan objek tidak lagi menjadi tanggung jawab siapa pun. Sengketa dibahas **off-chain**; di sistem ini hanya sebuah state, tanpa fungsi operasional.
 - **SETTLED:** setelah CLAIM_PERIOD berakhir, **consignor melakukan withdraw** (aksi user, gratis gas, dengan Withdrawal Fee; §14). Aksi ini menandai auctionID SETTLED, mengirim bagian consignor ke wallet-nya, dan mencatat bagian platform, guarantor, notary, dan tax sebagai saldo yang bisa ditarik masing-masing (§13). Tidak ada mekanisme cadangan bila consignor tidak melakukannya (§20).
@@ -383,7 +383,7 @@ Setiap kolom tabel punya dua **Label UI**: nama yang dilihat user di aplikasi, y
 | Aturan | Penjelasan |
 |---|---|
 | Sumber kebenaran | Smart contract = sumber kebenaran untuk bid, stake, peringkat, dan dana. Database = cermin (dibangun dari event kontrak) + data off-chain (KYC, file, notifikasi, tanda tangan). |
-| Nominal uang | `BIGINT` dalam satuan terkecil token. USDC punya 6 desimal: 0.5 USDC = `500000`, 5,000 USDC = `5000000000`. Tidak pernah memakai `FLOAT`/`NUMERIC` desimal. Format tampilan: internasional (koma ribuan, titik desimal). |
+| Nominal uang | `BIGINT` dalam satuan terkecil token. USDC punya 6 desimal: 0.05 USDC = `50000`, 5,000 USDC = `5000000000`. Tidak pernah memakai `FLOAT`/`NUMERIC` desimal. Format tampilan: internasional (koma ribuan, titik desimal). |
 | Waktu | `timestamptz` (UTC). Di kontrak: detik (`uint64`, block timestamp). Milidetik hanya `client_ms` di log web-app, hanya untuk tampilan. |
 | ID | `uuid` (default `gen_random_uuid()`), kecuali dinyatakan lain. |
 | Alamat wallet | `text`, huruf kecil, format `0x` + 40 hex (CHECK `wallet ~ '^0x[0-9a-f]{40}$'`). |
