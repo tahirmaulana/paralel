@@ -24,3 +24,21 @@ export interface RegisterAuctionInput {
   consignorNonce: bigint;
   consignorExpiry: bigint;
 }
+
+export interface SubmitAwardSignatureInput {
+  auctionKey: Hex;
+  roundNo: number;
+  rank: number;
+  nonce: bigint;
+  expiry: bigint;
+  signature: Hex;
+}
+
+export interface WithdrawRefundInput {
+  auctionKey: Hex;
+  roundNo: number;
+  bidder: `0x${string}`;
+  nonce: bigint;
+  expiry: bigint;
+  signature: Hex;
+}

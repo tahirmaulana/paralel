@@ -1,16 +1,18 @@
-// @file apps/web/src/app/providers.tsx — Wagmi and React Query providers for Web3 connection
+// @file apps/web/src/app/providers.tsx — Wagmi + React Query
 'use client';
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WagmiProvider, createConfig, http } from 'wagmi';
 import { arbitrumSepolia } from 'wagmi/chains';
-import { injected } from 'wagmi/connectors';
+import { injected } from 'wagmi/connectors'; // Cukup injected saja
+
+const rpcUrl = process.env.NEXT_PUBLIC_ARBITRUM_RPC_URL;
 
 const config = createConfig({
   chains: [arbitrumSepolia],
-  connectors: [injected()],
+  connectors: [injected()], // Hanya satu konektor
   transports: {
-    [arbitrumSepolia.id]: http(),
+    [arbitrumSepolia.id]: http(rpcUrl),
   },
 });
 

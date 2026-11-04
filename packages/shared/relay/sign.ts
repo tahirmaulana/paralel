@@ -106,3 +106,21 @@ export const WITHDRAW_REQUEST_TYPES = {
     { name: 'expiry', type: 'uint256' },
   ],
 } as const;
+
+export function splitSignature(signature: Hex): {
+  v: number;
+  r: Hex;
+  s: Hex;
+} {
+  if (signature.length !== 132) {
+    throw new Error('Signature must be 65 bytes (132 hex chars including 0x)');
+  }
+
+  const r = `0x${signature.slice(2, 66)}` as Hex;
+  const s = `0x${signature.slice(66, 130)}` as Hex;
+
+  let v = parseInt(signature.slice(130, 132), 16);
+  if (v < 27) v += 27;
+
+  return { v, r, s };
+}
