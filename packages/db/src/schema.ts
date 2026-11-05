@@ -1,5 +1,6 @@
 // @file packages/db/src/schema.ts — Drizzle database schema for Paralel
-// ref: PARALEL.md Lampiran D1–D7, §D0, §5.1, §6, §7; CONTRACT_SPEC.md §1
+// ref: PARALEL.md Lampiran D1–D7, §D0, §5.1, §6, §7, D11
+//    ; CONTRACT_SPEC.md §1
 import {
   pgTable, uuid, text, timestamp, boolean, bigint, smallint, jsonb,
   customType, integer, bigserial, index, uniqueIndex, primaryKey, check,
@@ -61,7 +62,7 @@ export const partners = pgTable('partners', {
   `),
 ]);
 
-// ─── D5. FEE CONFIG (harus sebelum auctions karena FK) ─────
+// ─── D5. FEE CONFIG (sebelum auctions karena FK) ─────────
 
 export const feeConfig = pgTable('fee_config', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -81,7 +82,10 @@ export const auctions = pgTable('auctions', {
   auctionCode: text('auction_code').notNull().unique(),
   consignorId: uuid('consignor_id').notNull().references(() => users.id),
   guarantorId: uuid('guarantor_id').notNull().references(() => partners.id),
-  notaryId: uuid('notary_id').notNull().references(() => partners.id),
+  // CHANGED (shared queue, PARALEL.md §4.1, D2.1, D11.2):
+  // notary_id nullable — NULL saat PENDING, di-set saat NOTARY_APPROVED diterima (cache).
+  // Sumber kebenaran: attestations (signer_wallet, type='NOTARY_APPROVED').
+  notaryId: uuid('notary_id').references(() => partners.id),
   category: text('category').notNull(),
   currency: text('currency').notNull().default('USDC'),
   tokenDecimals: smallint('token_decimals').notNull().default(6),
@@ -203,6 +207,11 @@ export const attestations = pgTable('attestations', {
 }, (t) => [
   check('chk_att_type', sql`${t.type} IN ('GUARANTOR_APPROVED','GUARANTOR_REJECTED','NOTARY_APPROVED','BIDDER_AWARD_SIGN','GUARANTOR_COLLECTED','GUARANTOR_WITHDRAWN','CONSIGNOR_CONFIRM','WITHDRAW_REQUEST')`),
   check('chk_att_signer_wallet', sql`${t.signerWallet} ~ '^0x[0-9a-f]{40}$'`),
+  // NEW (PARALEL.md D3.3, D11.2): race guard shared queue.
+  // Mencegah dua notary sign NOTARY_APPROVED untuk auction yang sama.
+  uniqueIndex('uq_attestation_approval')
+    .on(t.auctionId, t.type)
+    .where(sql`${t.type} IN ('GUARANTOR_APPROVED','NOTARY_APPROVED')`),
 ]);
 
 export const receipts = pgTable('receipts', {
@@ -363,7 +372,6 @@ export const chainEvents = pgTable('chain_events', {
   uniqueIndex('idx_chain_events_tx_log').on(t.chainId, t.txHash, t.logIndex),
 ]);
 
-// TAMBAHAN BARU: Tabel State untuk Navigasi Kursor Indexer
 export const indexerState = pgTable('indexer_state', {
   id: text('id').primaryKey(),
   lastScannedBlock: bigint('last_scanned_block', { mode: 'bigint' }).notNull(),

@@ -20,14 +20,15 @@ export default async function DashboardPage({
     );
   }
 
-  // Cek apakah wallet ini partner NOTARY
+  // Auth gate: hanya registered NOTARY yang masuk dashboard notary.
+  // Ref: PARALEL.md §4.1 poin 10.
   const notary = await getNotaryByWallet(wallet);
 
   if (notary) {
     return <NotaryDashboard notary={notary} />;
   }
 
-  // Fallback jika wallet user biasa
+  // Fallback untuk wallet user biasa.
   return (
     <div className="p-8 text-center">
       <h1 className="text-2xl font-bold mb-4">User Dashboard</h1>

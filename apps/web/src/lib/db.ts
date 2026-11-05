@@ -141,9 +141,18 @@ export async function getAuctionDetail(
   };
 }
 
-// ─── NOTARY QUERIES ──────────────────────────────────────────
+// ─── NOTARY: PROFILE ─────────────────────────────────────────
 
-export async function getNotaryByWallet(wallet: string) {
+export type NotaryProfile = {
+  partnerId: string;
+  name: string;
+  email: string | null;
+  wallet: string;
+};
+
+export async function getNotaryByWallet(
+  wallet: string,
+): Promise<NotaryProfile | null> {
   const [row] = await db
     .select({
       partnerId: schema.partners.id,
@@ -156,9 +165,269 @@ export async function getNotaryByWallet(wallet: string) {
     .where(
       and(
         eq(schema.partners.type, 'NOTARY'),
-        eq(schema.users.wallet, wallet.toLowerCase())
-      )
+        eq(schema.partners.active, true),
+        eq(schema.users.wallet, wallet.toLowerCase()),
+      ),
     )
     .limit(1);
   return row ?? null;
+}
+
+// ─── NOTARY: SUBMISSION (PENDING, GLOBAL QUEUE) ──────────────
+
+export type NotaryPendingApproval = {
+  auctionId: string;
+  auctionCode: string;
+  title: string | null;
+  startingBid: bigint;
+  bidIncrement: bigint;
+  openAt: Date;
+  durationHours: number;
+  consignorWallet: string;
+  guarantorName: string;
+  hasGuarantorApproval: boolean;
+  guarantorApprovedAt: Date | null;
+  pendingAt: Date | null;
+};
+
+/**
+ * Global queue: semua auction PENDING yang belum ada NOTARY_APPROVED.
+ * Tidak difilter oleh wallet tertentu (PARALEL.md §4.1, D11.5).
+ * Sort: guarantor_approved_at ASC (yang siap sign lebih dulu),
+ * lalu pending_at ASC (yang belum approved di bawah).
+ */
+export async function getNotaryPendingApprovals(): Promise<NotaryPendingApproval[]> {
+  const rows = await db
+    .select({
+      auctionId: schema.auctions.id,
+      auctionCode: schema.auctions.auctionCode,
+      title: schema.auctionAssets.title,
+      startingBid: schema.auctionRounds.startingBid,
+      bidIncrement: schema.auctionRounds.bidIncrement,
+      openAt: schema.auctionRounds.openAt,
+      durationHours: schema.auctionRounds.durationHours,
+      pendingAt: schema.auctions.pendingAt,
+      consignorWallet: sql<string>`(SELECT wallet FROM users WHERE id = ${schema.auctions.consignorId})`,
+      guarantorName: sql<string>`(SELECT name FROM partners WHERE id = ${schema.auctions.guarantorId})`,
+      guarantorApprovedAt: sql<Date | null>`(
+        SELECT created_at FROM attestations
+        WHERE auction_id = ${schema.auctions.id}
+          AND type = 'GUARANTOR_APPROVED'
+        LIMIT 1
+      )`,
+    })
+    .from(schema.auctions)
+    .leftJoin(
+      schema.auctionAssets,
+      eq(schema.auctionAssets.auctionId, schema.auctions.id),
+    )
+    .innerJoin(
+      schema.auctionRounds,
+      and(
+        eq(schema.auctionRounds.auctionId, schema.auctions.id),
+        eq(schema.auctionRounds.roundNo, schema.auctions.currentRound),
+      ),
+    )
+    .where(
+      and(
+        eq(schema.auctions.status, 'PENDING'),
+        sql`NOT EXISTS (
+          SELECT 1 FROM attestations
+          WHERE auction_id = ${schema.auctions.id}
+            AND type = 'NOTARY_APPROVED'
+        )`,
+      ),
+    )
+    .orderBy(
+      sql`(SELECT created_at FROM attestations WHERE auction_id = ${schema.auctions.id} AND type = 'GUARANTOR_APPROVED' LIMIT 1) ASC NULLS LAST`,
+      sql`${schema.auctions.pendingAt} ASC NULLS LAST`,
+    );
+
+  return rows.map((r) => ({
+    auctionId: r.auctionId,
+    auctionCode: r.auctionCode,
+    title: r.title,
+    startingBid: r.startingBid,
+    bidIncrement: r.bidIncrement,
+    openAt: r.openAt,
+    durationHours: r.durationHours,
+    consignorWallet: r.consignorWallet.toLowerCase(),
+    guarantorName: r.guarantorName,
+    hasGuarantorApproval: r.guarantorApprovedAt !== null,
+    guarantorApprovedAt: r.guarantorApprovedAt,
+    pendingAt: r.pendingAt,
+  }));
+}
+
+// ─── NOTARY: COLLECTIONS (PER-NOTARY via attestations) ──────
+
+export type NotaryCollectionRow = {
+  auctionId: string;
+  auctionCode: string;
+  title: string | null;
+  status: string;
+  currentRound: number;
+  winnerWallet: string | null;
+  updatedAt: Date;
+};
+
+export async function getNotaryCollections(
+  wallet: string,
+): Promise<NotaryCollectionRow[]> {
+  const normalized = wallet.toLowerCase();
+  const rows = await db
+    .select({
+      auctionId: schema.auctions.id,
+      auctionCode: schema.auctions.auctionCode,
+      title: schema.auctionAssets.title,
+      status: schema.auctions.status,
+      currentRound: schema.auctions.currentRound,
+      updatedAt: schema.auctions.updatedAt,
+      winnerWallet: sql<string | null>`(
+        SELECT bidder_wallet FROM bidder_stakes
+        WHERE auction_id = ${schema.auctions.id}
+          AND round_no = ${schema.auctions.currentRound}
+          AND status = 'WINNER'
+        LIMIT 1
+      )`,
+    })
+    .from(schema.auctions)
+    .leftJoin(
+      schema.auctionAssets,
+      eq(schema.auctionAssets.auctionId, schema.auctions.id),
+    )
+    .where(
+      and(
+        inArray(schema.auctions.status, [
+          'AWARDING',
+          'COLLECTION',
+          'CLAIM_PERIOD',
+          'SETTLED',
+        ]),
+        sql`EXISTS (
+          SELECT 1 FROM attestations
+          WHERE auction_id = ${schema.auctions.id}
+            AND type = 'NOTARY_APPROVED'
+            AND signer_wallet = ${normalized}
+        )`,
+      ),
+    )
+    .orderBy(desc(schema.auctions.updatedAt));
+
+  return rows as NotaryCollectionRow[];
+}
+
+// ─── NOTARY: RUN (GLOBAL VIEW) ──────────────────────────────
+
+export type NotaryRunRow = {
+  auctionId: string;
+  auctionCode: string;
+  title: string | null;
+  status: string;
+  currentRound: number;
+  startingBid: bigint;
+  currentBid: bigint;
+  closeAt: Date;
+  openAt: Date;
+  bidCount: number;
+};
+
+/**
+ * Global view: semua SCHEDULED + OPEN. Tidak difilter (PARALEL.md D11.5).
+ * Sort di query: OPEN (derived) by closeAt ASC, lalu SCHEDULED by openAt ASC.
+ * Status derived di JS menggunakan now (OPEN = openAt <= now < closeAt).
+ */
+export async function getNotaryRunAuctions(): Promise<NotaryRunRow[]> {
+  const rows = await db
+    .select({
+      auctionId: schema.auctions.id,
+      auctionCode: schema.auctions.auctionCode,
+      title: schema.auctionAssets.title,
+      status: schema.auctions.status,
+      currentRound: schema.auctions.currentRound,
+      startingBid: schema.auctionRounds.startingBid,
+      openAt: schema.auctionRounds.openAt,
+      closeAt: schema.auctionRounds.closeAt,
+      currentBid: sql<bigint>`COALESCE((
+        SELECT MAX(bs.my_bid) FROM bidder_stakes bs
+        WHERE bs.auction_id = ${schema.auctions.id}
+          AND bs.round_no = ${schema.auctions.currentRound}
+      ), 0)`,
+      bidCount: sql<number>`(
+        SELECT COUNT(*)::int FROM bids b
+        WHERE b.auction_id = ${schema.auctions.id}
+          AND b.round_no = ${schema.auctions.currentRound}
+      )`,
+    })
+    .from(schema.auctions)
+    .leftJoin(
+      schema.auctionAssets,
+      eq(schema.auctionAssets.auctionId, schema.auctions.id),
+    )
+    .innerJoin(
+      schema.auctionRounds,
+      and(
+        eq(schema.auctionRounds.auctionId, schema.auctions.id),
+        eq(schema.auctionRounds.roundNo, schema.auctions.currentRound),
+      ),
+    )
+    .where(inArray(schema.auctions.status, ['SCHEDULED', 'OPEN']));
+
+  // Sort client-side: derived OPEN by closeAt ASC, SCHEDULED by openAt ASC.
+  const now = Date.now();
+  const enriched = rows.map((r) => {
+    const isLive = r.status === 'OPEN' || r.openAt.getTime() <= now;
+    return { ...r, _isLive: isLive } as NotaryRunRow & { _isLive: boolean };
+  });
+
+  enriched.sort((a, b) => {
+    if (a._isLive !== b._isLive) return a._isLive ? -1 : 1;
+    if (a._isLive) return a.closeAt.getTime() - b.closeAt.getTime();
+    return a.openAt.getTime() - b.openAt.getTime();
+  });
+
+  return enriched.map(({ _isLive, ...r }) => r);
+}
+
+// ─── NOTARY: PASSED (PER-NOTARY via attestations) ───────────
+
+export type NotaryPassedRow = {
+  auctionId: string;
+  auctionCode: string;
+  title: string | null;
+  status: string;
+  updatedAt: Date;
+};
+
+export async function getNotaryPassedAuctions(
+  wallet: string,
+): Promise<NotaryPassedRow[]> {
+  const normalized = wallet.toLowerCase();
+  const rows = await db
+    .select({
+      auctionId: schema.auctions.id,
+      auctionCode: schema.auctions.auctionCode,
+      title: schema.auctionAssets.title,
+      status: schema.auctions.status,
+      updatedAt: schema.auctions.updatedAt,
+    })
+    .from(schema.auctions)
+    .leftJoin(
+      schema.auctionAssets,
+      eq(schema.auctionAssets.auctionId, schema.auctions.id),
+    )
+    .where(
+      and(
+        inArray(schema.auctions.status, ['PASSED_IN', 'WITHDRAWN']),
+        sql`EXISTS (
+          SELECT 1 FROM attestations
+          WHERE auction_id = ${schema.auctions.id}
+            AND type = 'NOTARY_APPROVED'
+            AND signer_wallet = ${normalized}
+        )`,
+      ),
+    )
+    .orderBy(desc(schema.auctions.updatedAt));
+
+  return rows as NotaryPassedRow[];
 }
