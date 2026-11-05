@@ -39,7 +39,6 @@ Istilah di bawah ini sudah disepakati. Kolom "Istilah lama" hanya untuk membantu
 | CONSIGNMENT | Penyerahan barang dari consignor ke guarantor (tahap PENDING) | DEPOSIT |
 | consignmentReceipt | Receipt yang dicetak guarantor saat CONSIGNMENT | auctionReceipt |
 | pre-bid / live bid | Bid sebelum OPEN (saat SCHEDULED) / bid saat OPEN | early bid / direct bid |
-
 | bid increment | Kelipatan nominal bid | kelipatan bid |
 | starting bid | Nilai pembukaan lelang | nilai pembukaan |
 | currentBid | Akumulasi stake tertinggi saat ini (status global/publik) | — |
@@ -75,21 +74,78 @@ Tidak berubah: PENDING, OPEN, CLOSED, bidder, guarantor, notary, platform.
 | Consignor | Pemilik barang. Membuat auctionID, memilih guarantor, menyerahkan barang ke guarantor (CONSIGNMENT), memasukkan confirmationCode, menarik dana setelah CLAIM_PERIOD. **Dilarang bid di auctionID miliknya sendiri.** |
 | Bidders | Peserta lelang (pre-bid / live bid). Wajib lolos KYC dan menerima terms & conditions, termasuk kota guarantor yang tertera di auctionID. |
 | Custody | **Notary** dan **Guarantor** (lihat di bawah). |
-| Notary | Pejabat Lelang Kelas II / Arbiter legal. **Review aset dan sign `NOTARY_APPROVED`** untuk mengklaim auctionID dari shared queue. Detail di §4.1. |
 
 ### 4.1 Notary
+
 1. Pejabat Lelang Kelas II / Arbiter legal.
-2. Menandatangani digital status APPROVED dari guarantor (tanda tangan ini yang membuat auctionID bisa masuk SCHEDULED) dan menerbitkan confirmationCode.
-3. Menerbitkan e-certificate legal (Risalah Lelang Elektronik) yang ditandatangani digital sebagai **output untuk winner**: kepastian hukum bahwa kepemilikan beralih lewat lelang. Ini bukan input dari consignor.
-4. Menerbitkan kutipan pajak, sementara mekanisme pembayaran pajak dilakukan secara on-chain oleh smartcontract.
+
+2. **Shared queue, bukan pre-assigned.** Notary **tidak** dipilih consignor saat auctionID dibuat. AuctionID yang sudah mendapat `GUARANTOR_APPROVED` masuk ke **daftar tunggu yang sama untuk semua notary terdaftar**. Notary yang lebih dulu me-review dan sign `NOTARY_APPROVED` mengklaim auctionID tersebut.
+
+3. **Notary wajib review aset** sebelum sign: membuka detail auctionID, memeriksa foto/dokumen, memverifikasi spesifikasi dan identifier. Tidak ada komisi tanpa kerja review.
+
+4. **First-to-sign wins.** Race condition (dua notary sign bersamaan) ditangani oleh partial unique index di `attestations` (`(auction_id, type) WHERE type IN ('GUARANTOR_APPROVED', 'NOTARY_APPROVED')`). Yang kalah mendapat 409 Conflict dan auctionID hilang dari queue-nya.
+
+5. **Batas waktu.** Jika tidak ada notary yang sign dalam 48 jam sejak `PENDING`, auctionID menjadi `CANCELED` (lihat §9.1).
+
+6. **Konsekuensi sign.** Setelah sign, notary tersebut tercatat di `attestations.signer_wallet` dan menjadi penerima **notary commission** untuk auctionID tersebut ketika SETTLED. `auctions.notary_id` di-update sebagai cache untuk query join cepat; sumber kebenaran tetap `attestations`.
+
+7. **ConfirmationCode.** Output dari trigger approval notary — di-generate backend, bukan dibuat notary. Detail di §4.1.1.
+
+8. **e-Certificate.** Output dari trigger sign pemenang (`AwardSigned`) — di-generate backend otomatis, bukan dibuat notary. Detail di §4.1.2.
+
+9. **Kutipan pajak** diterbitkan sebagai dokumen off-chain untuk winner (mekanisme pembayaran pajak on-chain ditangani kontrak di SETTLED).
+
+10. **Auth gate.** Hanya wallet yang terdaftar sebagai `partners.type = 'NOTARY'` (dan `active = true`) yang dapat masuk ke notary dashboard. Wallet lain → User Dashboard.
+
+### 4.1.1 ConfirmationCode
+
+- **Bukan dibuat notary**, bukan dibuat frontend.
+- **Output dari trigger approval notary** — backend generate kode setelah notary sign `NOTARY_APPROVED`.
+- Kode dikirim via email ke consignor. Consignor memasukkan kode untuk menandatangani `ConsignorConfirm`.
+- Formula derivasi: deterministik dari tiga event (auction creation, guarantor approval, notary approval) — detail di Lampiran D11.3.
+- Kode **tidak pernah disimpan sebagai plaintext** di DB; hanya `confirmation_codes.code_hash`. Plaintext di-derive ulang oleh backend kapan pun dibutuhkan.
+- Kode **tidak transit frontend** saat signing (frontend hanya menerima `codeHash`).
+- Kode **bukan gate security**: gerbang sebenarnya untuk registrasi on-chain adalah signature consignor pada `ConsignorConfirm`. Kode berfungsi sebagai proof-of-email-access + friction untuk memaksa proses review yang benar.
+
+### 4.1.2 e-Certificate
+
+- **Bukan dibuat notary secara manual**.
+- **Output trigger sign pemenang** (`AwardSigned` event on-chain). Backend generate e-certificate otomatis setelah event tersebut ter-index.
+- Validasi backend sebelum generate: (a) `NOTARY_APPROVED` attestation ada untuk auctionID, (b) winner wallet on-chain valid (match `round.winner` dan `AwardSigned.winner`).
+- Notary **view-only**. Tidak ada aksi sign ulang untuk e-certificate — tanda tangan `NOTARY_APPROVED` di pembukaan sudah menjadi basis legal.
+- Implementasi endpoint generate e-certificate **di luar lingkup sesi saat ini**. Tombol `View e-Certificate` di dashboard ditandai `(inactive)` sampai endpoint tersedia.
 
 ### 4.2 Guarantor
-1. Menjamin kondisi barang sesuai spesifikasi dan foto di auctionID.
-2. Saat **CONSIGNMENT** (tahap PENDING): memeriksa barang lalu memberi status **REJECTED / APPROVED** (digitally signed). Bila APPROVED, mencetak **consignmentReceipt** untuk consignor. REJECTED/APPROVED hanya diberikan di tahap ini.
-3. Saat **COLLECTION** selesai: memberi status **COLLECTED** (digitally signed) dan mencetak **collectionReceipt** untuk winner.
-4. Saat **WITHDRAWN** (consignor menarik barang setelah PASSED_IN): memberi status WITHDRAWN (digitally signed) dan mencetak **withdrawalReceipt**.
 
-Dua serah-terima fisik utama dibedakan namanya: **CONSIGNMENT** (consignor → guarantor, tahap PENDING) dan **COLLECTION** (guarantor → winner, setelah AWARDING).
+1. Menjamin kondisi barang sesuai spesifikasi dan foto di auctionID. **Guarantor memegang fisik barang** sejak CONSIGNMENT sampai COLLECTION/WITHDRAWAL selesai. Ini implikasi RWA: guarantor adalah penanggung jawab fisik terhadap barang, bukan hanya verifikator.
+
+2. **Pre-assigned, bukan shared queue.** Guarantor **dipilih consignor saat CREATED** (§4.3). `auctions.guarantor_id` NOT NULL. Guarantor hanya melihat auction yang di-assign ke dia (`guarantor_id = this_guarantor`), tidak ada tab global.
+
+3. **Empat aksi guarantor** (per auctionID, sequential — satu per satu sesuai alur fisik):
+
+   **a. CONSIGNMENT (status PENDING)** — dua aksi, keduanya **off-chain only** (tidak ada fungsi kontrak untuk ini):
+   - **APPROVED** — tanda tangan EIP-712 `GuarantorApproval(auctionKey, specHash, nonce, expiry)` → disimpan sebagai attestation `GUARANTOR_APPROVED`. Signature hanya diverifikasi backend, tidak disubmit on-chain. Setelah APPROVED, auction menunggu notary sign `NOTARY_APPROVED` (§4.1). Bila APPROVED, guarantor mencetak **consignmentReceipt** untuk consignor (lihat butir 5).
+   - **REJECTED** — tanda tangan EIP-712 `GuarantorRejection(auctionKey, reasonHash, nonce, expiry)` dengan `reasonHash = keccak256(toBytes(reason))`. Reason plaintext wajib diisi (min 10 karakter) dan disimpan di `attestations.payload.reason` + `status_log.reason`. Attestation `GUARANTOR_REJECTED` + status `auctions.status = 'REJECTED'`. REJECTED **tidak bisa** retry — consignor harus buat auctionID baru (§9.1).
+
+   **b. COLLECTION (status COLLECTION)** — winner datang ambil barang:
+   - Guarantor mencetak **collectionReceipt** (printable form) yang ditandatangani **fisik** oleh winner (§11).
+   - Setelah form fisik ditandatangani dan dipegang guarantor, guarantor klik **Confirm Collected** → tanda tangan EIP-712 `Collected(auctionKey, roundNo, nonce, expiry)` → dikirim ke kontrak via relay → on-chain event `Collected` → status `CLAIM_PERIOD`.
+   - **Enforcement fisik tidak dilakukan sistem**. Guarantor bertanggung jawab operasional untuk tidak klik Confirm sebelum memegang form fisik bertanda tangan. Sistem hanya mencatat aksi on-chain.
+
+   **c. WITHDRAWAL (status PASSED_IN)** — consignor menarik barang:
+   - Guarantor mencetak **withdrawalReceipt** untuk consignor yang menarik barang, **dengan referensi ke consignmentReceipt** awal (tanggal + auction code) sebagai bukti bahwa barang yang ditarik = barang yang di-consign.
+   - Setelah serah terima fisik, guarantor klik **Confirm Withdrawn** → tanda tangan EIP-712 `Withdrawn(auctionKey, roundNo, nonce, expiry)` → dikirim ke kontrak via relay → on-chain `WithdrawnItem` → status `WITHDRAWN`.
+
+4. **EIP-712 off-chain types.** `GuarantorApproval` dan `GuarantorRejection` **tidak** didefinisikan di kontrak (off-chain only). Didefinisikan di `packages/shared/relay/sign.ts` dan diverifikasi backend via `verifyTypedData` sebelum attestation di-insert. `Collected` dan `Withdrawn` **sudah ada** di kontrak (diverifikasi saat relay).
+
+5. **Tiga receipt fisik** (printable form, off-chain, bukan e-certificate):
+   - **consignmentReceipt** — untuk **consignor**, bukti serah terima barang dari consignor ke guarantor. Berisi: nama consignor, auction code, tanggal print, spec hash, title.
+   - **collectionReceipt** — untuk **guarantor** (bukan winner), bukti serah terima barang dari guarantor ke winner. Ditandatangani fisik oleh winner. Berisi: **nama sah winner, tanggal print, tanggal akhir masa dispute** (= `collection_deadline + CLAIM_WINDOW`), auction code, winner stake. Guarantor memegang form ini sebagai bukti hukum.
+   - **withdrawalReceipt** — untuk **consignor**, bukti pengambilan barang dari guarantor. Berisi: nama consignor, auction code, tanggal print, **referensi ke consignmentReceipt awal**.
+
+6. **Batas waktu auto-cancel.** Guarantor diberi 48 jam sejak `pending_at` untuk melakukan CONSIGNMENT. Jika tidak ada CONSIGNMENT / Confirm dalam 48 jam → backend auto-set status `CANCELED` (§9.2 poin 2). Auto-cancel ini **bukan aksi guarantor** — di-trigger backend (keeper/cron), di luar UI guarantor.
+
+7. **Auth gate.** Hanya wallet `partners.type = 'GUARANTOR'` dan `active = true` yang dapat masuk Guarantor Dashboard. Wallet lain → fallback User Dashboard.
 
 ### 4.3 Contoh Guarantor per Kategori
 
@@ -144,8 +200,8 @@ Detail tipe dan label UI per field: Lampiran D2.3.1.
 
 ## 6. Mata Uang dan Bid Increment
 
-- **USDC**: dipakai lebih dulu (testnet tersedia). Bid increment USDC hanya: **0.05 / 0.5 / 5 / 50 / 500 / 5,000 USDC**. Tidak boleh melebihi **5% dari starting bid**.
-- **IDRX**: masih on-proposal. Jika disetujui, consignor memilih salah satu dari 2 opsi staking per auctionID. Daftar increment IDRX (rencana, berlaku bila disetujui): 500 / 5,000 / 50,000 / 500,000 / 5,000,000 / 50,000,000 IDRX, maksimal 5% dari starting bid.
+- **USDC**: dipakai lebih dulu (testnet tersedia). Bid increment USDC hanya: **0.5 / 5 / 50 / 500 / 5,000 USDC**. Tidak boleh melebihi **5% dari starting bid**.
+- **IDRX**: masih on-proposal. Jika disetujui, consignor memilih salah satu dari 2 opsi staking per auctionID. Daftar increment IDRX (rencana, berlaku bila disetujui): 5,000 / 50,000 / 500,000 / 5,000,000 / 50,000,000 IDRX, maksimal 5% dari starting bid.
 - Satu auctionID memakai satu mata uang.
 
 ## 7. Parameter auctionID (diisi consignor)
@@ -217,12 +273,24 @@ Konfigurasi platform (fee, dll) ada di **backend app**, bukan di smart contract;
 Status akhir: **REJECTED, CANCELED, SETTLED, WITHDRAWN**. REJECTED dan CANCELED mengharuskan membuat auctionID baru. Keduanya tidak pernah muncul di feed.
 
 ### 9.2 Tahap sebelum SCHEDULED (hanya di database)
+
 1. **CREATED** — consignor mengisi semua parameter (§7), spesifikasi, identifier, 5 foto, lalu klik Create. Status CREATED sampai REJECTED/CANCELED hanya ada di database.
+
 2. **PENDING (48 jam)** — guarantor menerima notifikasi. Consignor menyerahkan barang ke guarantor (**CONSIGNMENT**). Guarantor memeriksa barang terhadap spesifikasi dan foto.
+
    - **REJECTED** → auctionID REJECTED (dengan alasan).
-   - **APPROVED** (digitally signed, consignmentReceipt dicetak) → notary menerima notifikasi → notary tanda tangan digital → sistem mengirim **confirmationCode** ke email consignor → consignor memasukkan kode dan klik **Confirm**.
-   - Tidak ada CONSIGNMENT / Confirm dalam 48 jam → **CANCELED** (belum ada confirmationCode).
-3. **Confirm** = auctionID didaftarkan on-chain. Mulai dari sini kontrak menjadi sumber kebenaran, karena SCHEDULED sudah mengandung tanda tangan notary dan barang sudah berada di guarantor.
+   - **APPROVED** (digitally signed, consignmentReceipt dicetak) → auctionID masuk **shared queue semua notary terdaftar**. Setiap notary dapat melihat auctionID ini dan menekan Approve.
+   - **Notary Approve** (siapa pun yang lebih dulu):
+     1. Notary membuka detail, me-review foto/dokumen/spesifikasi.
+     2. Notary menekan Approve → frontend `POST /api/notary/approve/init` → backend derive `code` + `codeHash`, baca `nonces(notaryWallet)` on-chain, pilih `expiry`, return `{ codeHash, nonce, expiry }` (tanpa `code`).
+     3. Frontend sign EIP-712 `NotaryApproval(auctionKey, paramsHash, codeHash, nonce, expiry)` dengan wallet notary.
+     4. Frontend `POST /api/notary/approve` dengan signature.
+     5. Backend re-derive `code` + `codeHash`, verifikasi signature, insert atomik `attestations` (`NOTARY_APPROVED`) + `confirmation_codes`, update `auctions.notary_id` (cache), lalu email `code` ke consignor.
+     6. Jika ada notary lain yang sudah lebih dulu berhasil sign (race condition), backend return 409 Conflict. Notary yang kalah mencoba auctionID lain.
+   - **Consignor Confirm** — consignor membuka email, memasukkan `code` → backend verifikasi `keccak256(code) == code_hash` → consignor sign `ConsignorConfirm` → backend relay `registerAuction` on-chain → auctionID menjadi `SCHEDULED`.
+   - Tidak ada CONSIGNMENT / Confirm dalam 48 jam → **CANCELED**.
+
+3. **Confirm = pendaftaran on-chain.** Mulai dari sini kontrak menjadi sumber kebenaran. `p.notary` yang dikirim ke `registerAuction` adalah **wallet notary yang berhasil sign** di shared queue.
 
 ### 9.3 Tahap on-chain
 4. **SCHEDULED** — muncul di feed (app, X, Telegram). Pre-bid dibuka. Jam OPEN 48–168 jam setelah SCHEDULED.
@@ -252,6 +320,7 @@ Status akhir: **REJECTED, CANCELED, SETTLED, WITHDRAWN**. REJECTED dan CANCELED 
 ## 11. COLLECTION, CLAIM_PERIOD, SETTLED
 
 - **COLLECTION:** winner wajib datang ke guarantor dengan tenggat **48 jam sejak signing**. Saat winner datang, guarantor memberi status **COLLECTED** (digitally signed) dan mencetak **collectionReceipt**. **E-Certificate di-generate otomatis oleh backend** sebagai output dari event `AwardSigned` — bukan aksi manual notary. Notary hanya **view-only** (lihat §4.1.2). Backend memvalidasi (a) `NOTARY_APPROVED` attestation ada, (b) winner on-chain valid sebelum generate e-certificate.
+- **collectionReceipt = dokumen fisik untuk guarantor, bukan untuk winner.** Guarantor mencetak form (berisi nama sah winner, tanggal print, tanggal akhir masa dispute), winner menandatangani fisik, dan guarantor menyimpan form tersebut sebagai bukti hukum bahwa barang sudah diserahkan ke winner. Winner **tidak menerima** collectionReceipt (yang winner terima adalah **e-Certificate** dari backend — §4.1.2, belum diimplementasi). CollectionReceipt **bukan** e-Certificate dan tidak saling menggantikan.
 - Bila winner tidak datang dalam 48 jam: collectionReceipt **tetap otomatis tercetak** (`auto_issued`) dan auctionID masuk CLAIM_PERIOD.
 - **CLAIM_PERIOD:** masa penjaminan **168 jam (7 hari)** sejak collectionReceipt. Setelah berakhir, kerusakan atau kehilangan objek tidak lagi menjadi tanggung jawab siapa pun. Sengketa dibahas **off-chain**; di sistem ini hanya sebuah state, tanpa fungsi operasional.
 - **SETTLED:** setelah CLAIM_PERIOD berakhir, **consignor melakukan withdraw** (aksi user, gratis gas, dengan Withdrawal Fee; §14). Aksi ini menandai auctionID SETTLED, mengirim bagian consignor ke wallet-nya, dan mencatat bagian platform, guarantor, notary, dan tax sebagai saldo yang bisa ditarik masing-masing (§13). Tidak ada mekanisme cadangan bila consignor tidak melakukannya (§20).
@@ -312,7 +381,7 @@ Lelang **PASSED_IN** bila CLOSED tanpa bid sama sekali, atau semua kandidat DEFA
   - Notary: signature `NotaryApproval(auctionKey, paramsHash, codeHash, nonce, expiry)` — membuktikan review dan persetujuan terhadap auctionID + `codeHash` yang di-generate backend. `confirmationCodeHash` (= `codeHash`) yang dibawa ke `registerAuction` adalah bagian dari signature ini, bukan input bebas dari notary.
   - Consignor: Confirm.
   - Bidder: signing AWARDING, permintaan withdraw.
-  - Guarantor: COLLECTED, WITHDRAWN.
+  - Guarantor: APPROVED, REJECTED (off-chain via backend), COLLECTED, WITHDRAWN (on-chain via kontrak).
   - Penerima commission/tax: permintaan penarikan saldo.
 - Rincian struktur penyimpanan kontrak: Lampiran D10. Rincian fungsi, invarian, dan skenario uji: `CONTRACT_SPEC.md`.
 
@@ -334,6 +403,33 @@ Lelang **PASSED_IN** bila CLOSED tanpa bid sama sekali, atau semua kandidat DEFA
 - Tombol bid menampilkan keterangan gas fee di bawahnya; tombol withdraw menampilkan Withdrawal Fee dan jumlah bersih.
 - Form spesifikasi berbeda per kategori dengan petunjuk pengisian (§5.1).
 - Label UI per kolom data: Lampiran D.
+
+**Notary Dashboard** — layout per tab:
+
+- **Tab Submission** — daftar `PENDING` yang belum ada `NOTARY_APPROVED`. **Global** (semua notary melihat daftar yang sama). Sort: earliest `GUARANTOR_APPROVED.created_at` lebih dulu (siap sign), yang belum guarantor-approve di bawahnya (sort by `pending_at`). Baris tanpa `GUARANTOR_APPROVED` = read-only, tombol Sign disabled.
+- **Tab Collections** — auction `AWARDING`, `COLLECTION`, `CLAIM_PERIOD`, `SETTLED` yang di-sign `NOTARY_APPROVED` oleh notary ini (filter via `attestations.signer_wallet = notary_wallet`). Tombol `View e-Certificate` disabled di `AWARDING`, aktif di stage lanjut (tapi saat ini inactive sampai endpoint ada).
+- **Tab Run** — daftar `SCHEDULED` + `OPEN` **global** (semua notary melihat semua). Sort: `OPEN` by `closeAt ASC` (closest remaining end dulu), lalu `SCHEDULED` by `openAt ASC`. View-only (link ke detail auction).
+- **Tab PASSED** — auction `PASSED_IN` + `WITHDRAWN` yang di-sign `NOTARY_APPROVED` oleh notary ini. Sort `updated_at DESC`. View-only (link ke detail auction).
+- **Tab Commission** — total `claimableOf(notaryWallet)` dibaca on-chain via `useReadContract`. Tombol `Withdraw Commission` memanggil `withdrawClaimable()` direct dari wallet notary (bayar gas sendiri, tanpa Withdrawal Fee — §21.1).
+- **Tab Profile** — nama bisnis, wallet, email (read-only). Tombol `Request Data Update` ditandai `(inactive)` (belum ada API).
+
+**Guarantor Dashboard** — layout per tab:
+
+- **Tab Submission** — `guarantor_id = this` AND `status = 'PENDING'`. Sort `pending_at ASC` (FIFO — barang sudah datang fisik). Baris tanpa `GUARANTOR_APPROVED` menampilkan tombol **Approve** + **Reject** + **Print consignmentReceipt**. Baris yang sudah `GUARANTOR_APPROVED` tetap tampil dengan badge "Approved — awaiting notary" dan tombol Approve/Reject disabled. Modal Reject wajib isi alasan (min 10 char). Search bar per-tab (auctionCode + title).
+
+- **Tab Collection** — `guarantor_id = this` AND `status = 'COLLECTION'`. Sort `collection_deadline ASC` (paling dekat deadline dulu). Kolom: Auction Code, Title, Winner Wallet, Winner Stake, Collection Deadline (countdown 48 jam). Aksi: **Print collectionReceipt** (aktif, form berisi nama sah winner + tanggal print + tanggal akhir dispute), **Confirm Collected** (sign EIP-712 `Collected` → relay on-chain). Tidak ada enforcement bahwa print dulu sebelum Confirm — guarantor bertanggung jawab operasional. Search bar per-tab.
+
+- **Tab Withdrawal** — `guarantor_id = this` AND `status = 'PASSED_IN'`. Sort `updated_at ASC` (paling lama PASSED_IN dulu). Aksi: **Print withdrawalReceipt** (refer ke consignmentReceipt awal), **Confirm Withdrawn** (sign EIP-712 `Withdrawn` → relay on-chain). Baris hilang jika consignor pilih re-use (status → SCHEDULED). Search bar per-tab.
+
+- **Tab Run** — `guarantor_id = this` AND `status IN ('SCHEDULED','OPEN','AWARDING')`. Sort: `OPEN` by `closeAt ASC`, lalu `SCHEDULED` by `openAt ASC`, lalu `AWARDING` by `updated_at DESC`. View-only (link ke detail auction). Search bar per-tab.
+
+- **Tab History** — `guarantor_id = this` AND `status IN ('SETTLED','PASSED_IN','WITHDRAWN','CANCELED','REJECTED')`. Sort `updated_at DESC`. View-only. `PASSED_IN` muncul juga di tab Withdrawal (badge "action needed" di History, badge aktif di Withdrawal). Search bar per-tab.
+
+- **Tab Commission** — total `claimableOf(guarantorWallet)` dibaca on-chain. Tombol `Withdraw Commission` memanggil `withdrawClaimable()` direct dari wallet guarantor (bayar gas sendiri, tanpa Withdrawal Fee — §21.1).
+
+- **Tab Profile** — nama bisnis, wallet, email (read-only). Tombol `Request Data Update` inactive (belum ada API).
+
+**Print Routes** — satu route generik `/print/receipt/[type]/[auctionId]` dengan `type ∈ {consignment, collection, withdrawal}`. Server-render, tombol browser `window.print()` di client. Print form **tidak** memerlukan signature — hanya dokumen HTML yang bisa di-print. Signature EIP-712 terjadi terpisah saat klik Approve/Reject/Confirm Collected/Confirm Withdrawn.
 
 ## 18. Integrasi
 
@@ -363,6 +459,7 @@ Item berikut **sengaja tidak dimodelkan**. Jangan ditambahkan tanpa persetujuan 
 - Audit smart contract, pengamanan kunci wallet trigger, dan aspek regulasi/hukum lelang: diabaikan untuk desain prototype ini.
 - Perpanjangan waktu anti-sniping.
 - **Generate E-Certificate** — off-chain backend, trigger dari event `AwardSigned`. Kontrak tidak menyimpan atau menghasilkan e-certificate. **Belum diimplementasi** di sesi saat ini; tombol UI inactive sampai endpoint tersedia.
+- **Generate PDF receipt** — off-chain backend, hanya HTML printable form. Format PDF otentik (dengan watermark/tanda tangan digital) tidak diimplementasi.
 
 ## 21. Catatan Kesepakatan Tambahan
 
@@ -454,7 +551,7 @@ Satu baris per auctionID. Parameter yang bisa berubah antar-putaran ada di `auct
 | `auction_code` | Auction ID | Auction ID | text | NOT NULL | UNIQUE. Kode yang tampil ke publik; memuat kota guarantor. Dihasilkan sistem. |
 | `consignor_id` | Consignor | Consignor | uuid | NOT NULL | FK → `users.id`. Dilarang bid di auctionID miliknya (kontrak memblokir wallet ini; wallet lain ditangkap lewat flag KYC). |
 | `guarantor_id` | Guarantor | Guarantor | uuid | NOT NULL | FK → `partners.id` (type `GUARANTOR`). Dipilih consignor. Kategorinya harus sama dengan `category`. |
-| `notary_id` | Notary | Notary | uuid | NOT NULL | FK → `partners.id` (type `NOTARY`). |
+| `notary_id` | Notary | Notary | uuid | **NULL** | FK → `partners.id` (type `NOTARY`). **Nullable** — NULL selama PENDING, di-set saat `NOTARY_APPROVED` diterima (cache). Sumber kebenaran notary untuk auctionID ini = `attestations` (`type='NOTARY_APPROVED'`, `signer_wallet`). |
 | `category` | Category | Kategori | text | NOT NULL | `OTOMOTIF` / `PROPERTI` / `ELEKTRONIK` / `AKSESORIS_HOBI` / `PERHIASAN`. Menentukan `document_type` dan field di `auction_assets.spec`. |
 | `currency` | Currency | Mata Uang | text | NOT NULL | Default `USDC`. `IDRX` baru dibuka jika proposal disetujui; saat itu consignor memilih salah satu dari 2 opsi staking per auctionID. |
 | `token_decimals` | — (internal) | — (internal) | smallint | NOT NULL | Default `6` (USDC). Dipakai untuk konversi tampilan. |
@@ -599,6 +696,12 @@ Kode yang diterbitkan notaris setelah guarantor menyatakan APPROVED, dikirim ke 
 | `used_at` | — (internal) | — (internal) | timestamptz | NULL | Terisi saat consignor memasukkan kode dan menekan Confirm. |
 | `created_at` | — (internal) | — (internal) | timestamptz | NOT NULL | |
 
+Catatan:
+- `code_hash` di DB untuk verifikasi cepat (`keccak256(code) == code_hash`).
+- **Plaintext `code` tidak disimpan** di DB. Backend re-derive kapan pun via formula D11.3.
+- `code` hanya dikirim via email ke consignor setelah backend menerima signature valid notary.
+- `issued_by_notary` = notary yang berhasil sign (`attestations.signer_wallet` untuk `NOTARY_APPROVED`).
+
 #### D3.3 `attestations`
 Tanda tangan (gaya EIP-712) dari wallet yang ditunjuk. Kontrak hanya mempercayai tanda tangan ini untuk peristiwa off-chain.
 
@@ -613,6 +716,59 @@ Tanda tangan (gaya EIP-712) dari wallet yang ditunjuk. Kontrak hanya mempercayai
 | `signature` | Digital Signature | Tanda Tangan Digital | bytea | NOT NULL | |
 | `submitted_tx_hash` | — (internal) | — (internal) | text | NULL | Tx yang membawa atestasi ke kontrak. |
 | `created_at` | — (internal) | — (internal) | timestamptz | NOT NULL | |
+
+**Partial unique index (baru):**
+
+```sql
+CREATE UNIQUE INDEX uq_attestation_approval
+  ON attestations (auction_id, type)
+  WHERE type IN ('GUARANTOR_APPROVED', 'NOTARY_APPROVED');
+```
+
+Fungsi: mencegah dua notary sign `NOTARY_APPROVED` untuk auctionID yang sama (race guard shared queue). Insert kedua → unique violation → API return 409.
+
+**Payload `NOTARY_APPROVED` (struktur baru, tanpa plaintext code):**
+
+```json
+{
+  "auctionKey": "0x...",
+  "notaryWallet": "0x...",
+  "guarantorWallet": "0x...",
+  "nonce": "0",
+  "expiry": "1736456789",
+  "codeHash": "0x...",
+  "derivation": "v1_ccc_xxx_vvv"
+}
+```
+
+`derivation` = tag versi formula. Jika formula berubah di masa depan, kode lama tetap dapat diverifikasi dengan formula versi yang sesuai.
+
+**Payload `GUARANTOR_APPROVED` (struktur baru):**
+
+```json
+{
+  "auctionId": "uuid",
+  "guarantorWallet": "0x...",
+  "attestationTimestamp": 1736456789,
+  "note": "optional free-text"
+}
+```
+
+`attestationTimestamp` (unix detik) dibutuhkan untuk derivasi `xxx` di formula D11.3.
+
+**Payload `GUARANTOR_REJECTED`:**
+
+```json
+{
+  "auctionId": "uuid",
+  "guarantorWallet": "0x...",
+  "reason": "string, min 10 chars",
+  "reasonHash": "0x...",
+  "attestationTimestamp": 1736456789
+}
+```
+
+`reasonHash = keccak256(toBytes(reason))` — dipakai di EIP-712 signature `GuarantorRejection`. Plaintext reason disimpan di payload untuk audit + `status_log.reason`.
 
 #### D3.4 `receipts`
 
@@ -902,3 +1058,199 @@ Setiap pesan memuat domain (chain + alamat kontrak), `nonce`, dan `expiry`:
 - `AwardSign`: auctionKey, roundNo, peringkat.
 - `WithdrawRequest`: auctionKey, roundNo, wallet penarik.
 - `Collected`, `Withdrawn`: auctionKey, roundNo (ditandatangani guarantor).
+
+---
+
+### D11. Notary Dashboard
+
+#### D11.1 Auth & Access
+
+- **Auth gate**: `partners.type = 'NOTARY'` dan `partners.active = true`. Unregistered wallet → fallback User Dashboard.
+- **API `/api/notary/data`**: tanpa auth tambahan. Data notary (nama bisnis, daftar auction) dianggap publik sesuai prinsip transparansi lelang. Field PDP (email, KYC) tidak diekspos endpoint ini.
+- **API `/api/notary/approve/init`**: tanpa auth tambahan. Kode hanya di-generate (draft), tidak di-persist. Rate limit dapat ditambahkan di produksi.
+- **API `/api/notary/approve`**: signature-protected (verifikasi EIP-712 terhadap `notaryWallet`).
+
+#### D11.2 Data Model
+
+- Sumber kebenaran notary per auctionID = `attestations` (`type='NOTARY_APPROVED'`, `signer_wallet`).
+- `auctions.notary_id` = cache nullable, di-set saat sign, untuk join cepat.
+- Filter semua tab notary (Collections, PASSED) menggunakan `attestations`, bukan `auctions.notary_id`.
+- Tab Run = **global view** (semua notary lihat semua). Tab Submission = **global queue** (semua notary lihat semua PENDING yang belum signed). Tab Collections & PASSED = **per-notary**.
+
+#### D11.3 Formula ConfirmationCode (versi `v1_ccc_xxx_vvv`)
+
+Semua input berupa unix detik (`floor(date.getTime() / 1000)`).
+
+```
+ccc = keccak256(abi.encode("AUCTION_CREATED", auction_code, floor(auctions.created_at / 1000)))
+xxx = keccak256(abi.encode("GUARANTOR_APPROVED", auction_id, guarantor_wallet, floor(attestations.created_at / 1000)))
+vvv = keccak256(abi.encode("NOTARY_APPROVAL", notary_wallet, nonce_onchain, expiry))
+assembled = keccak256(abi.encode(ccc, xxx, vvv))
+code = base36(assembled).toUpperCase().padStart(8, '0').slice(0, 8)
+codeHash = keccak256(toBytes(code))
+```
+
+- **8 karakter** alfanumerik uppercase (A-Z, 0-9), **tanpa dash**.
+- `nonce_onchain = nonces(notaryWallet)` dibaca on-chain saat `/init`.
+- `expiry = now + 3600` (1 jam), dipilih backend saat `/init`.
+- **Risiko yang diterima**: semua input publik, sehingga kode dapat di-derive oleh siapa pun dengan akses baca DB + RPC. Diterima karena kode bukan gate security.
+- `derivation` tag wajib diisi `"v1_ccc_xxx_vvv"` saat insert `attestations`.
+
+#### D11.4 Endpoint API
+
+**`POST /api/notary/approve/init`**
+
+Input:
+```json
+{ "auctionId": "uuid", "notaryWallet": "0x..." }
+```
+
+Server:
+1. Verifikasi `notaryWallet` adalah registered NOTARY.
+2. Verifikasi auction `status = 'PENDING'` dan `GUARANTOR_APPROVED` exists.
+3. Baca `nonces(notaryWallet)` on-chain.
+4. Pilih `expiry = now + 3600`.
+5. Derive `code`, `codeHash` (formula D11.3).
+6. Return `{ codeHash, nonce, expiry, paramsHash, auctionKey }` (**tanpa `code`**).
+
+**`POST /api/notary/approve`**
+
+Input:
+```json
+{ "auctionId": "uuid", "notaryWallet": "0x...", "signature": "0x...", "nonce": "0", "expiry": "1736456789" }
+```
+
+Server:
+1. Verifikasi `notaryWallet` adalah registered NOTARY.
+2. Verifikasi auction `status = 'PENDING'`, `GUARANTOR_APPROVED` exists, `NOTARY_APPROVED` NOT exists.
+3. Re-derive `code`, `codeHash` (formula D11.3) menggunakan nilai `nonce` + `expiry` dari input.
+4. Verifikasi EIP-712 signature terhadap `notaryWallet` dengan message `NotaryApproval(auctionKey, paramsHash, codeHash, nonce, expiry)`.
+5. Insert atomik: `attestations` (`NOTARY_APPROVED`) + `confirmation_codes`. Partial unique index mencegah duplikasi.
+6. Update `auctions.notary_id = notary.id` (cache).
+7. Email `code` ke consignor (log simulasi untuk prototype).
+8. Response: `{ ok: true }` / 409 / 400.
+
+**`GET /api/notary/data?wallet=0x...`**
+
+Return:
+```json
+{
+  "pendingApprovals": [{ "auctionId", "auctionCode", "title", "startingBid", "bidIncrement", "openAt", "durationHours", "consignorWallet", "guarantorName", "hasGuarantorApproval" }],
+  "collections": [{ "auctionId", "auctionCode", "title", "status", "currentRound", "winnerWallet" }],
+  "run": [{ "auctionId", "auctionCode", "title", "status", "currentRound", "startingBid", "currentBid", "closeAt", "bidCount" }],
+  "passed": [{ "auctionId", "auctionCode", "title", "status", "updatedAt" }]
+}
+```
+
+**Tidak** ada field `profile` (dari server-render `page.tsx`).
+
+#### D11.5 Tab Definition Matrix
+
+| Tab | Filter | Sort | Tombol | Keterangan |
+|---|---|---|---|---|
+| Submission | `status='PENDING'` AND `NOT EXISTS(NOTARY_APPROVED)` | `GUARANTOR_APPROVED.created_at ASC` (approve dulu), lalu `pending_at ASC` | Sign aktif jika `GUARANTOR_APPROVED` ada, disabled jika belum | Global |
+| Collections | `NOTARY_APPROVED` oleh notary ini AND `status IN ('AWARDING','COLLECTION','CLAIM_PERIOD','SETTLED')` | `updated_at DESC` | `View e-Certificate` disabled di `AWARDING`, aktif di stage lanjut (saat ini inactive) | Per-notary |
+| Run | `status IN ('SCHEDULED','OPEN')` | `OPEN` by `closeAt ASC`, lalu `SCHEDULED` by `openAt ASC` | View-only | Global |
+| PASSED | `NOTARY_APPROVED` oleh notary ini AND `status IN ('PASSED_IN','WITHDRAWN')` | `updated_at DESC` | View-only | Per-notary |
+| Commission | On-chain `claimableOf(notaryWallet)` | — | `Withdraw Commission` → `withdrawClaimable()` direct | Total only |
+| Profile | — | — | `Request Data Update` inactive | Read-only |
+
+#### D11.6 e-Certificate (Placeholder)
+
+- Endpoint generate e-certificate **belum diimplementasi**.
+- Akan didefinisikan di sesi lanjutan: input `auctionId`, validasi `NOTARY_APPROVED` + `AwardSigned`, output PDF/JSON.
+- Tombol UI saat ini `(inactive)`.
+
+---
+
+### D12. Guarantor Dashboard
+
+#### D12.1 Auth & Access
+
+- **Auth gate**: `partners.type = 'GUARANTOR'` dan `partners.active = true`. Unregistered wallet → fallback User Dashboard.
+- **Scope**: per-guarantor. Semua tab memfilter `auctions.guarantor_id = this_guarantor`. Tidak ada tab global (berbeda dengan notary Run + Submission yang global).
+
+#### D12.2 Data Model
+
+- Sumber kebenaran guarantor per auctionID = `auctions.guarantor_id` (pre-assigned saat CREATED, NOT NULL).
+- Attestation types untuk guarantor: `GUARANTOR_APPROVED` (off-chain), `GUARANTOR_REJECTED` (off-chain), `GUARANTOR_COLLECTED` (on-chain via event), `GUARANTOR_WITHDRAWN` (on-chain via event).
+- `GUARANTOR_APPROVED` dan `GUARANTOR_REJECTED` di-insert backend setelah verifikasi EIP-712. **Tidak disubmit ke kontrak.**
+- `GUARANTOR_COLLECTED` dan `GUARANTOR_WITHDRAWN` di-insert backend setelah relay transaksi kontrak sukses (`collected()` / `markWithdrawn()`).
+
+#### D12.3 EIP-712 Types (off-chain)
+
+Didefinisikan di `packages/shared/relay/sign.ts`, **tidak** di kontrak. Diverifikasi backend via `verifyTypedData`.
+
+```
+GuarantorApproval(bytes32 auctionKey, bytes32 specHash, uint256 nonce, uint256 expiry)
+GuarantorRejection(bytes32 auctionKey, bytes32 reasonHash, uint256 nonce, uint256 expiry)
+```
+
+`Collected` dan `Withdrawn` sudah ada di kontrak (`COLLECTED_TYPEHASH`, `WITHDRAWN_TYPEHASH`) — lihat CONTRACT_SPEC §3.7, §3.13.
+
+#### D12.4 Endpoint API
+
+**`GET /api/guarantor/data?wallet=0x...`**
+
+Return:
+```json
+{
+  "submission": [{ "auctionId", "auctionCode", "title", "consignorWallet", "startingBid", "pendingAt", "hasGuarantorApproval" }],
+  "collection": [{ "auctionId", "auctionCode", "title", "winnerWallet", "winnerStake", "collectionDeadline" }],
+  "withdrawal": [{ "auctionId", "auctionCode", "title", "consignorWallet", "updatedAt" }],
+  "run": [{ "auctionId", "auctionCode", "title", "status", "currentBid", "closeAt" }],
+  "history": [{ "auctionId", "auctionCode", "title", "status", "updatedAt" }]
+}
+```
+
+**Tidak** ada field `profile` — profile dari server-render `page.tsx`.
+
+**`POST /api/guarantor/approve`**
+
+Input: `{ auctionId, guarantorWallet, signature, nonce, expiry }`.
+Server: verifikasi guarantor, verifikasi auction `status='PENDING'`, verify EIP-712 `GuarantorApproval`, insert `attestations(type='GUARANTOR_APPROVED')`. **Tidak** update `auctions.status` (tetap PENDING, menunggu notary).
+
+**`POST /api/guarantor/reject`**
+
+Input: `{ auctionId, guarantorWallet, signature, nonce, expiry, reason }`.
+Server: verifikasi guarantor, verifikasi auction `status='PENDING'`, compute `reasonHash`, verify EIP-712 `GuarantorRejection`, insert `attestations(type='GUARANTOR_REJECTED', payload={reason, reasonHash})`, insert `status_log(from='PENDING', to='REJECTED', reason)`, update `auctions.status='REJECTED'`.
+
+**`POST /api/guarantor/collected`**
+
+Input: `{ auctionKey, roundNo, guarantorWallet, signature, nonce, expiry }`.
+Server: verifikasi guarantor, verifikasi auction `status='COLLECTION'`, verify EIP-712 `Collected`, relay `collected()` on-chain, insert `attestations(type='GUARANTOR_COLLECTED')`. Status auction berubah via indexer (on-chain event).
+
+**`POST /api/guarantor/withdrawn`**
+
+Input: `{ auctionKey, roundNo, guarantorWallet, signature, nonce, expiry }`.
+Server: verifikasi guarantor, verifikasi auction `status='PASSED_IN'`, verify EIP-712 `Withdrawn`, relay `markWithdrawn()` on-chain, insert `attestations(type='GUARANTOR_WITHDRAWN')`.
+
+#### D12.5 Tab Definition Matrix
+
+| Tab | Filter | Sort | Aksi |
+|---|---|---|---|
+| Submission | `guarantor_id = this` AND `status = 'PENDING'` | `pending_at ASC` | Print consignmentReceipt, Approve, Reject |
+| Collection | `guarantor_id = this` AND `status = 'COLLECTION'` | `collection_deadline ASC` | Print collectionReceipt, Confirm Collected |
+| Withdrawal | `guarantor_id = this` AND `status = 'PASSED_IN'` | `updated_at ASC` | Print withdrawalReceipt, Confirm Withdrawn |
+| Run | `guarantor_id = this` AND `status IN ('SCHEDULED','OPEN','AWARDING')` | OPEN by closeAt ASC, SCHEDULED by openAt ASC, AWARDING by updated_at DESC | View-only |
+| History | `guarantor_id = this` AND `status IN ('SETTLED','PASSED_IN','WITHDRAWN','CANCELED','REJECTED')` | `updated_at DESC` | View-only |
+| Commission | On-chain `claimableOf(guarantorWallet)` | — | Withdraw Commission → `withdrawClaimable()` direct |
+| Profile | — | — | Read-only, Request Data Update inactive |
+
+**Search**: setiap tab yang punya list (semua kecuali Commission + Profile) menyediakan search bar client-side. Field: `auctionCode` + `title` (case-insensitive substring). Debounce 150ms.
+
+#### D12.6 Print Routes
+
+Satu route generik: `/print/receipt/[type]/[auctionId]`, `type ∈ {consignment, collection, withdrawal}`.
+
+| Type | Isi | Owner |
+|---|---|---|
+| consignment | Nama consignor, auction code, tanggal print, spec hash, title | Consignor |
+| collection | Nama sah winner, auction code, tanggal print, tanggal akhir dispute (`collection_deadline + 168 jam`), winner stake | Guarantor |
+| withdrawal | Nama consignor, auction code, tanggal print, referensi ke consignmentReceipt awal | Consignor |
+
+Server-render page (data dari DB + on-chain `getRound` untuk `collection_deadline`). Client wrapper trigger `window.print()` saat halaman load (atau tombol). Print form **tidak** memerlukan signature — hanya dokumen HTML.
+
+#### D12.7 Auto-Cancel 48 jam (Backend, di luar UI)
+
+Guarantor diberi 48 jam sejak `pending_at` untuk CONSIGNMENT. Jika tidak ada CONSIGNMENT / Confirm dalam 48 jam → backend auto-set `auctions.status = 'CANCELED'`. **Implementasi auto-cancel di luar scope sesi ini** — akan ditangani oleh keeper baru atau cron terpisah di sesi mendatang.

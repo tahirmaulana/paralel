@@ -44,6 +44,7 @@ Ini spesifikasi, bukan kode. Struktur penyimpanan: PARALEL.md Lampiran D10.
   - kedua tanda tangan valid, belum kedaluwarsa, nonce belum dipakai; hash confirmationCode pada kedua pesan sama.
 - **Efek:** simpan Auction dan Round 1; status `SCHEDULED`; `closeAt = openAt + durasi`.
 - **Event:** `AuctionRegistered` (membawa metadata lengkap), `RoundScheduled`.
+- **Off-chain context (tidak mengubah kontrak):** `p.notary` di-supply oleh backend sebagai **wallet notary yang berhasil sign** di shared queue (lihat PARALEL.md §4.1). `p.confirmationCodeHash` di-supply backend sesuai formula derivasi (PARALEL.md Lampiran D11.3), bukan dibuat notary atau frontend. Kontrak tetap hanya memverifikasi signature valid dari wallet notary yang terdaftar.
 
 ### 3.3 `placeBid` / `placeBidWithPermit` — pre-bid dan live bid
 - **Pemanggil:** bidder (gas dibayar bidder).
@@ -75,6 +76,7 @@ Ini spesifikasi, bukan kode. Struktur penyimpanan: PARALEL.md Lampiran D10.
 - **Syarat:** status `AWARDING`; `now ≤ awardingDeadline` (dinilai saat transaksi masuk); penanda tangan = `topRanks[awardingIndex]`; pesan valid, nonce baru.
 - **Efek:** `winner = kandidat`; `winnerStake = myBid`; status `COLLECTION`; `collectionDeadline = now + 48 jam`. Peringkat lain yang belum DEFAULTED menjadi dapat ditarik penuh.
 - **Event:** `AwardSigned`.
+- **Off-chain follow-up:** on-chain hanya menyimpan `winner` dan `winnerStake`. **E-Certificate di-generate oleh backend off-chain** sebagai output dari `AwardSigned` event. Kontrak tidak memiliki fungsi untuk generate e-certificate (lihat PARALEL.md §4.1.2).
 
 ### 3.6 `advanceCandidate` — trigger kandidat berikutnya
 - **Pemanggil:** relayer.
@@ -89,6 +91,7 @@ Ini spesifikasi, bukan kode. Struktur penyimpanan: PARALEL.md Lampiran D10.
 - **Syarat:** status `COLLECTION`; `now ≤ collectionDeadline`; penanda tangan = guarantor auctionID.
 - **Efek:** status `CLAIM_PERIOD`; `claimPeriodEnd = now + 168 jam`.
 - **Event:** `Collected`, `ClaimPeriodStarted`.
+- **Off-chain context (tidak mengubah kontrak):** sebelum memanggil `collected`, guarantor mencetak **collectionReceipt** (form fisik) yang ditandatangani winner. Form fisik ini dipegang guarantor sebagai bukti hukum serah terima barang. Sistem tidak enforce physical signature — guarantor bertanggung jawab operasional untuk tidak memanggil `collected` sebelum memegang form bertanda tangan. `collectionReceipt` adalah **dokumen fisik untuk guarantor**, bukan untuk winner; winner menerima e-Certificate (backend, di luar kontrak — §4.1.2 PARALEL.md).
 
 ### 3.8 `expireCollection` — trigger 48 jam habis
 - **Pemanggil:** relayer.
@@ -127,6 +130,7 @@ Ini spesifikasi, bukan kode. Struktur penyimpanan: PARALEL.md Lampiran D10.
 - **Syarat:** `claimable[msg.sender] > 0`.
 - **Efek:** seluruh saldo dikirim ke `msg.sender`; saldo menjadi 0.
 - **Event:** `Withdrawal(kind = FEE_BALANCE, gross, fee = 0, net)`.
+- **UI usage (notary dashboard):** membaca `claimableOf(notaryWallet)` on-chain via view call, dan memanggil `withdrawClaimable()` **direct dari wallet notary** (bukan via relayer, bayar gas sendiri, tanpa Withdrawal Fee). Konsisten dengan PARALEL.md §21.1.
 
 ### 3.12 `reuseRound` — re-use setelah PASSED_IN
 - **Pemanggil:** relayer, membawa pesan `ConsignorConfirm` (re-use) dari consignor.
@@ -139,6 +143,7 @@ Ini spesifikasi, bukan kode. Struktur penyimpanan: PARALEL.md Lampiran D10.
 - **Syarat:** putaran saat ini `PASSED_IN`; penanda tangan = guarantor auctionID.
 - **Efek:** status `WITHDRAWN` (final). Stake putaran terakhir tetap bisa ditarik (aturan `PASSED_IN` di §3.9 berdasarkan hasil putaran, bukan status auctionID).
 - **Event:** `WithdrawnItem`.
+- **Off-chain context (tidak mengubah kontrak):** sebelum memanggil `markWithdrawn`, guarantor mencetak **withdrawalReceipt** untuk consignor yang menarik barang. Form ini mereferensikan `consignmentReceipt` awal (bukti barang yang di-consign = barang yang ditarik). Sama seperti `collected`, sistem tidak enforce physical signature — guarantor bertanggung jawab operasional.
 
 ### 3.14 Fungsi baca (view)
 `statusOf`, `getAuction`, `getRound`, `getTopRanks`, `getStake`, `claimableOf(address)`, dan **`refundableOf(auctionKey, roundNo, bidder)`** yang mengembalikan jumlah kotor, Withdrawal Fee, dan jumlah diterima (dipakai UI untuk menampilkan "Amount Received" sebelum withdraw).
@@ -187,6 +192,7 @@ Gunakan custom error yang bernama jelas, mis.: `NotRelayer`, `NotOwner`, `Partne
 ## 8. Di Luar Lingkup Kontrak
 
 IDRX; verifikasi kebenaran spesifikasi atau identifier (hanya hash dan event); KYC; sengketa; pencegahan shill bidding; mekanisme cadangan bila consignor tidak withdraw; jalur penarikan darurat tanpa relayer; audit keamanan (PARALEL.md §20).
+- E-Certificate generation (off-chain, backend). Kontrak tidak menyimpan atau menghasilkan e-certificate.
 
 ## 9. Klarifikasi (sudah disetujui dan sudah diterapkan di PARALEL.md)
 
