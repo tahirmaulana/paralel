@@ -144,8 +144,8 @@ Detail tipe dan label UI per field: Lampiran D2.3.1.
 
 ## 6. Mata Uang dan Bid Increment
 
-- **USDC**: dipakai lebih dulu (testnet tersedia). Bid increment USDC hanya: **0.5 / 5 / 50 / 500 / 5,000 USDC**. Tidak boleh melebihi **5% dari starting bid**.
-- **IDRX**: masih on-proposal. Jika disetujui, consignor memilih salah satu dari 2 opsi staking per auctionID. Daftar increment IDRX (rencana, berlaku bila disetujui): 5,000 / 50,000 / 500,000 / 5,000,000 / 50,000,000 IDRX, maksimal 5% dari starting bid.
+- **USDC**: dipakai lebih dulu (testnet tersedia). Bid increment USDC hanya: **0.05 / 0.5 / 5 / 50 / 500 / 5,000 USDC**. Tidak boleh melebihi **5% dari starting bid**.
+- **IDRX**: masih on-proposal. Jika disetujui, consignor memilih salah satu dari 2 opsi staking per auctionID. Daftar increment IDRX (rencana, berlaku bila disetujui): 500 / 5,000 / 50,000 / 500,000 / 5,000,000 / 50,000,000 IDRX, maksimal 5% dari starting bid.
 - Satu auctionID memakai satu mata uang.
 
 ## 7. Parameter auctionID (diisi consignor)
