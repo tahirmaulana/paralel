@@ -7,7 +7,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
-const bytea = customType<{ data: Buffer; notNull: false; default: false }>({
+const bytea = customType<{ data: Buffer; notNull: true; default: false }>({
   dataType() { return 'bytea'; },
 });
 

@@ -124,3 +124,35 @@ export function splitSignature(signature: Hex): {
 
   return { v, r, s };
 }
+
+// ─── Guarantor (off-chain only types) ────────────────────────
+// Ref: PARALEL.md Lampiran D12.3
+//
+// GuarantorApproval/GuarantorRejection tidak ada di kontrak — diverifikasi
+// backend via verifyTypedData, tidak pernah disubmit on-chain.
+
+export const GUARANTOR_APPROVAL_TYPES = {
+  GuarantorApproval: [
+    { name: 'auctionKey', type: 'bytes32' },
+    { name: 'specHash', type: 'bytes32' },
+    { name: 'nonce', type: 'uint256' },
+    { name: 'expiry', type: 'uint256' },
+  ],
+} as const;
+
+export const GUARANTOR_REJECTION_TYPES = {
+  GuarantorRejection: [
+    { name: 'auctionKey', type: 'bytes32' },
+    { name: 'reasonHash', type: 'bytes32' },
+    { name: 'nonce', type: 'uint256' },
+    { name: 'expiry', type: 'uint256' },
+  ],
+} as const;
+
+/**
+ * reasonHash = keccak256(toBytes(reason)) — dipakai di EIP-712
+ * GuarantorRejection. Plaintext reason disimpan di attestations.payload.
+ */
+export function computeReasonHash(reason: string): Hex {
+  return keccak256(toBytes(reason));
+}

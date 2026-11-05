@@ -1,6 +1,8 @@
 // @file apps/web/src/app/dashboard/page.tsx
-import { getNotaryByWallet } from '@/lib/db';
+import { getNotaryByWallet, getGuarantorByWallet } from '@/lib/db';
 import { NotaryDashboard } from '@/components/NotaryDashboard';
+import { GuarantorDashboard } from '@/components/GuarantorDashboard';
+import { WalletGuard } from '@/components/WalletGuard';
 import Link from 'next/link';
 
 export const instant = false;
@@ -20,22 +22,38 @@ export default async function DashboardPage({
     );
   }
 
-  // Auth gate: hanya registered NOTARY yang masuk dashboard notary.
-  // Ref: PARALEL.md §4.1 poin 10.
+  // Auth gate: notary first
   const notary = await getNotaryByWallet(wallet);
-
   if (notary) {
-    return <NotaryDashboard notary={notary} />;
+    return (
+      <WalletGuard expectedWallet={wallet}>
+        <NotaryDashboard notary={notary} />
+      </WalletGuard>
+    );
   }
 
-  // Fallback untuk wallet user biasa.
+  // Auth gate: guarantor
+  const guarantor = await getGuarantorByWallet(wallet);
+  if (guarantor) {
+    return (
+      <WalletGuard expectedWallet={wallet}>
+        <GuarantorDashboard guarantor={guarantor} />
+      </WalletGuard>
+    );
+  }
+
+  // Fallback untuk wallet user biasa
   return (
-    <div className="p-8 text-center">
-      <h1 className="text-2xl font-bold mb-4">User Dashboard</h1>
-      <p className="text-gray-600">Fitur untuk Bidder / Consignor sedang dikembangkan.</p>
-      <Link href="/" className="text-blue-600 hover:underline mt-4 inline-block">
-        ← Kembali ke Beranda
-      </Link>
-    </div>
+    <WalletGuard expectedWallet={wallet}>
+      <div className="p-8 text-center">
+        <h1 className="text-2xl font-bold mb-4">User Dashboard</h1>
+        <p className="text-gray-600">
+          Fitur untuk Bidder / Consignor sedang dikembangkan.
+        </p>
+        <Link href="/auctions" className="text-blue-600 hover:underline mt-4 inline-block">
+          ← Kembali ke Feed
+        </Link>
+      </div>
+    </WalletGuard>
   );
 }

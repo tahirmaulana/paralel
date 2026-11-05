@@ -42,3 +42,45 @@ export interface WithdrawRefundInput {
   expiry: bigint;
   signature: Hex;
 }
+
+// ─── Guarantor ───────────────────────────────────────────────
+
+export interface SubmitGuarantorApprovalInput {
+  auctionKey: Hex;
+  specHash: Hex;
+  guarantorWallet: `0x${string}`;
+  nonce: bigint;
+  expiry: bigint;
+  signature: Hex;
+  auctionId: string;
+}
+
+export interface SubmitGuarantorRejectionInput {
+  auctionKey: Hex;
+  guarantorWallet: `0x${string}`;
+  nonce: bigint;
+  expiry: bigint;
+  reason: string;
+  signature: Hex;
+  auctionId: string;
+}
+
+export interface SubmitCollectedInput {
+  auctionKey: Hex;
+  roundNo: number;
+  guarantorWallet: `0x${string}`;
+  nonce: bigint;
+  expiry: bigint;
+  signature: Hex;
+  auctionId: string;
+}
+
+export interface SubmitWithdrawnInput {
+  auctionKey: Hex;
+  roundNo: number;
+  guarantorWallet: `0x${string}`;
+  nonce: bigint;
+  expiry: bigint;
+  signature: Hex;
+  auctionId: string;
+}
