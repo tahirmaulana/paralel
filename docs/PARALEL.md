@@ -39,11 +39,12 @@ Istilah di bawah ini sudah disepakati. Kolom "Istilah lama" hanya untuk membantu
 | CONSIGNMENT | Penyerahan barang dari consignor ke guarantor (tahap PENDING) | DEPOSIT |
 | consignmentReceipt | Receipt yang dicetak guarantor saat CONSIGNMENT | auctionReceipt |
 | pre-bid / live bid | Bid sebelum OPEN (saat SCHEDULED) / bid saat OPEN | early bid / direct bid |
+
 | bid increment | Kelipatan nominal bid | kelipatan bid |
 | starting bid | Nilai pembukaan lelang | nilai pembukaan |
 | currentBid | Akumulasi stake tertinggi saat ini (status global/publik) | — |
 | myBid | Akumulasi stake satu bidder (status privat di UI) | — |
-| SCHEDULED | auctionID sudah lolos guarantor + notary, tercatat on-chain, menunggu jam OPEN | CONFIRMED |
+| SCHEDULED | auctionID sudah lolos guarantor + salah satu notary (yang sign `NOTARY_APPROVED`), tercatat on-chain, menunggu jam OPEN | CONFIRMED |
 | AWARDING | Tahap penetapan pemenang: provisional winner diminta signing berurutan | SETTLEMENT |
 | provisional winner | Kandidat pemenang peringkat 1–10 yang sedang/akan diminta signing | calon pemenang |
 | underbidder | Bidder peringkat 2–10 yang tidak ditetapkan sebagai winner | — |
@@ -74,6 +75,7 @@ Tidak berubah: PENDING, OPEN, CLOSED, bidder, guarantor, notary, platform.
 | Consignor | Pemilik barang. Membuat auctionID, memilih guarantor, menyerahkan barang ke guarantor (CONSIGNMENT), memasukkan confirmationCode, menarik dana setelah CLAIM_PERIOD. **Dilarang bid di auctionID miliknya sendiri.** |
 | Bidders | Peserta lelang (pre-bid / live bid). Wajib lolos KYC dan menerima terms & conditions, termasuk kota guarantor yang tertera di auctionID. |
 | Custody | **Notary** dan **Guarantor** (lihat di bawah). |
+| Notary | Pejabat Lelang Kelas II / Arbiter legal. **Review aset dan sign `NOTARY_APPROVED`** untuk mengklaim auctionID dari shared queue. Detail di §4.1. |
 
 ### 4.1 Notary
 1. Pejabat Lelang Kelas II / Arbiter legal.
@@ -200,7 +202,7 @@ Konfigurasi platform (fee, dll) ada di **backend app**, bukan di smart contract;
 | CREATED | PENDING | consignor klik Create (mulai hitungan 48 jam) |
 | PENDING | REJECTED | guarantor memberi REJECTED saat CONSIGNMENT (barang tidak sesuai spesifikasi/foto) |
 | PENDING | CANCELED | 48 jam habis sebelum SCHEDULED (mis. consignor tidak melakukan CONSIGNMENT; juga bila Confirm tidak terjadi atau partner tidak merespons) |
-| PENDING | SCHEDULED | guarantor APPROVED + notary tanda tangan + consignor input confirmationCode dan klik Confirm |
+| PENDING | SCHEDULED | guarantor APPROVED + salah satu notary sign `NOTARY_APPROVED` + consignor input confirmationCode dan klik Confirm |
 | SCHEDULED | OPEN | jam OPEN tercapai |
 | OPEN | CLOSED | durasi lelang habis |
 | CLOSED | PASSED_IN | tidak ada bid sama sekali |
@@ -249,7 +251,7 @@ Status akhir: **REJECTED, CANCELED, SETTLED, WITHDRAWN**. REJECTED dan CANCELED 
 
 ## 11. COLLECTION, CLAIM_PERIOD, SETTLED
 
-- **COLLECTION:** winner wajib datang ke guarantor dengan tenggat **48 jam sejak signing**. Saat winner datang, guarantor memberi status **COLLECTED** (digitally signed) dan mencetak **collectionReceipt**. Notary menerbitkan e-certificate untuk winner.
+- **COLLECTION:** winner wajib datang ke guarantor dengan tenggat **48 jam sejak signing**. Saat winner datang, guarantor memberi status **COLLECTED** (digitally signed) dan mencetak **collectionReceipt**. **E-Certificate di-generate otomatis oleh backend** sebagai output dari event `AwardSigned` — bukan aksi manual notary. Notary hanya **view-only** (lihat §4.1.2). Backend memvalidasi (a) `NOTARY_APPROVED` attestation ada, (b) winner on-chain valid sebelum generate e-certificate.
 - Bila winner tidak datang dalam 48 jam: collectionReceipt **tetap otomatis tercetak** (`auto_issued`) dan auctionID masuk CLAIM_PERIOD.
 - **CLAIM_PERIOD:** masa penjaminan **168 jam (7 hari)** sejak collectionReceipt. Setelah berakhir, kerusakan atau kehilangan objek tidak lagi menjadi tanggung jawab siapa pun. Sengketa dibahas **off-chain**; di sistem ini hanya sebuah state, tanpa fungsi operasional.
 - **SETTLED:** setelah CLAIM_PERIOD berakhir, **consignor melakukan withdraw** (aksi user, gratis gas, dengan Withdrawal Fee; §14). Aksi ini menandai auctionID SETTLED, mengirim bagian consignor ke wallet-nya, dan mencatat bagian platform, guarantor, notary, dan tax sebagai saldo yang bisa ditarik masing-masing (§13). Tidak ada mekanisme cadangan bila consignor tidak melakukannya (§20).
@@ -307,7 +309,7 @@ Lelang **PASSED_IN** bila CLOSED tanpa bid sama sekali, atau semua kandidat DEFA
 - **Partner registry:** `owner` (platform) mendaftarkan wallet notary dan guarantor yang sah beserta kategori guarantor. Owner tidak punya kuasa lain atas dana atau lelang.
 - **Metadata** (spesifikasi, file) dicatat sebagai event log dengan hash di storage.
 - **Tanda tangan sebagai bukti off-chain.** Kontrak hanya menerima peristiwa off-chain bila ditandatangani wallet yang terdaftar untuk peran itu (pesan terstruktur gaya EIP-712 dengan domain, nonce, dan masa berlaku):
-  - Notary: APPROVED + confirmationCode (dibawa saat pendaftaran).
+  - Notary: signature `NotaryApproval(auctionKey, paramsHash, codeHash, nonce, expiry)` — membuktikan review dan persetujuan terhadap auctionID + `codeHash` yang di-generate backend. `confirmationCodeHash` (= `codeHash`) yang dibawa ke `registerAuction` adalah bagian dari signature ini, bukan input bebas dari notary.
   - Consignor: Confirm.
   - Bidder: signing AWARDING, permintaan withdraw.
   - Guarantor: COLLECTED, WITHDRAWN.
@@ -360,6 +362,7 @@ Item berikut **sengaja tidak dimodelkan**. Jangan ditambahkan tanpa persetujuan 
 - Pencegahan shill bidding (bid memakai wallet lain untuk mengerek harga): tidak dipertimbangkan; risikonya sudah tercermin lewat fee.
 - Audit smart contract, pengamanan kunci wallet trigger, dan aspek regulasi/hukum lelang: diabaikan untuk desain prototype ini.
 - Perpanjangan waktu anti-sniping.
+- **Generate E-Certificate** — off-chain backend, trigger dari event `AwardSigned`. Kontrak tidak menyimpan atau menghasilkan e-certificate. **Belum diimplementasi** di sesi saat ini; tombol UI inactive sampai endpoint tersedia.
 
 ## 21. Catatan Kesepakatan Tambahan
 
@@ -435,7 +438,7 @@ Notaris dan guarantor. Wallet partner juga didaftarkan di kontrak sebagai penand
 | `name` | Partner Name | Nama Partner | text | NOT NULL | Contoh: `INDOMOTOR`, `DIGITALSHOP`, `ACCSSTORE`, `GOLDJEWELRY`, `GREENPROPERTY`. |
 | `category` | Category | Kategori | text | NULL | Kategori yang ditangani. Wajib untuk `GUARANTOR`, NULL untuk `NOTARY`. Nilai: lihat D9. |
 | `city` | City | Kota | text | NULL | Wajib untuk `GUARANTOR`. Ditampilkan di auctionID sebagai bagian terms & conditions. |
-| `active` | — (internal) | — (internal) | boolean | NOT NULL | Default `true`. Partner nonaktif tidak bisa dipilih untuk auctionID baru. |
+| `active` | — (internal) | — (internal) | boolean | NOT NULL | Default `true`. Partner nonaktif **tidak muncul di shared queue untuk sign** (auth gate `partners.active = true`). Auction yang sudah di-sign sebelum partner dinonaktifkan tetap valid (source of truth = `attestations`). |
 | `created_at` | — (internal) | — (internal) | timestamptz | NOT NULL | |
 
 ---
