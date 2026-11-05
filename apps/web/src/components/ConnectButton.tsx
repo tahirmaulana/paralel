@@ -3,8 +3,10 @@
 
 import { useState, useEffect } from 'react';
 import { useConnection, useConnect, useDisconnect } from 'wagmi';
+import { useRouter } from 'next/navigation'; // <-- Import useRouter
 
 export function ConnectButton() {
+  const router = useRouter(); // <-- Inisialisasi router
   const { address, isConnected } = useConnection();
   const { connect, connectors, isPending, error } = useConnect();
   const { disconnect } = useDisconnect();
@@ -15,7 +17,13 @@ export function ConnectButton() {
     setMounted(true);
   }, []);
 
-  // Cegah hydration mismatch (render kosong saat di server)
+  // Auto-redirect ke dashboard saat connect berhasil
+  useEffect(() => {
+    if (isConnected && address) {
+      router.push(`/dashboard?wallet=${address}`);
+    }
+  }, [isConnected, address, router]);
+
   if (!mounted) return null;
 
   if (isConnected && address) {
@@ -34,14 +42,12 @@ export function ConnectButton() {
     );
   }
 
-  // Ambil hanya konektor pertama (Injected/MetaMask)
   const injectedConnector = connectors[0];
 
   return (
     <div className="flex flex-col items-end gap-2">
       <button
         onClick={() => {
-          console.log('🖱️ Tombol diklik!');
           if (!injectedConnector) {
             alert('Wallet tidak terdeteksi. Silakan install MetaMask.');
             return;
@@ -54,19 +60,10 @@ export function ConnectButton() {
         {isPending ? 'Menghubungkan...' : 'Connect Wallet'}
       </button>
       
-      {/* Jika ekstensi tidak terdeteksi sama sekali */}
       {connectors.length === 0 && (
-        <p className="text-xs text-red-500 font-bold mt-1">
-          MetaMask tidak terdeteksi. Install ekstensinya!
-        </p>
+        <p className="text-xs text-red-500 font-bold mt-1">MetaMask tidak terdeteksi.</p>
       )}
-
-      {/* Tampilkan error dari Wagmi */}
-      {error && (
-        <p className="text-xs text-red-500 max-w-[200px] text-right bg-red-50 p-1 rounded">
-          {error.message}
-        </p>
-      )}
+      {error && <p className="text-xs text-red-500 max-w-[200px] text-right bg-red-50 p-1 rounded">{error.message}</p>}
     </div>
   );
 }

@@ -8,13 +8,15 @@ import { DB_FEED_STATUSES, type DbFeedStatus } from './web3';
 const sqlClient = neon(process.env.DATABASE_URL!);
 const db = drizzle(sqlClient, { schema });
 
+// ─── PUBLIC QUERIES ──────────────────────────────────────────
+
 export type AuctionRow = {
   id: string;
   auctionCode: string;
   status: string;
   currentRound: number;
   category: string;
-  title: string | null; // Bisa null jika dari E2E script
+  title: string | null;
   startingBid: bigint;
   currentBid: bigint;
   bidCount: number;
@@ -57,7 +59,7 @@ export async function listAuctions(
       status: schema.auctions.status,
       currentRound: schema.auctions.currentRound,
       category: schema.auctions.category,
-      title: schema.auctionAssets.title, // Bisa null
+      title: schema.auctionAssets.title,
       startingBid: schema.auctionRounds.startingBid,
       currentBid: sql<bigint>`COALESCE((
         SELECT MAX(bs.my_bid) FROM bidder_stakes bs
@@ -74,7 +76,6 @@ export async function listAuctions(
       createdAt: schema.auctions.createdAt,
     })
     .from(schema.auctions)
-    // Ubah ke leftJoin agar auction tetap muncul walau assets belum dibuat
     .leftJoin(
       schema.auctionAssets,
       eq(schema.auctionAssets.auctionId, schema.auctions.id),
@@ -94,7 +95,7 @@ export async function listAuctions(
 
 export type AuctionDetail = {
   auction: typeof schema.auctions.$inferSelect;
-  assets: typeof schema.auctionAssets.$inferSelect | null; // Bisa null
+  assets: typeof schema.auctionAssets.$inferSelect | null;
   round: typeof schema.auctionRounds.$inferSelect;
   consignorWallet: `0x${string}`;
   guarantorWallet: `0x${string}`;
@@ -138,4 +139,26 @@ export async function getAuctionDetail(
     guarantorWallet: row.guarantorWallet.toLowerCase() as `0x${string}`,
     notaryWallet: row.notaryWallet.toLowerCase() as `0x${string}`,
   };
+}
+
+// ─── NOTARY QUERIES ──────────────────────────────────────────
+
+export async function getNotaryByWallet(wallet: string) {
+  const [row] = await db
+    .select({
+      partnerId: schema.partners.id,
+      name: schema.partners.name,
+      email: schema.users.email,
+      wallet: schema.users.wallet,
+    })
+    .from(schema.partners)
+    .innerJoin(schema.users, eq(schema.users.id, schema.partners.userId))
+    .where(
+      and(
+        eq(schema.partners.type, 'NOTARY'),
+        eq(schema.users.wallet, wallet.toLowerCase())
+      )
+    )
+    .limit(1);
+  return row ?? null;
 }
