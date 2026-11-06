@@ -7,6 +7,8 @@ export async function POST(req: Request) {
     const wallet = body.adminWallet?.toLowerCase();
     
     const adminWallets = (process.env.USER_ADMIN_WALLET || '').split(',').map(w => w.trim().toLowerCase());
+    
+    // Validasi: Apakah wallet ada di list USER_ADMIN_WALLET?
     if (!wallet || !adminWallets.includes(wallet)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }

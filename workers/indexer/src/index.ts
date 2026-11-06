@@ -10,12 +10,12 @@ import abi from './abi.json';
 import { processEvents } from './process';
 
 async function runIndexer(env: Env) {
-  const sqlClient = neon(env.DATABASE_URL);
+  const sqlClient = neon(await env.DATABASE_URL.get());
   const db = drizzle(sqlClient);
 
   const client = createPublicClient({
     chain: arbitrumSepolia,
-    transport: http(env.ARBITRUM_RPC_URL),
+    transport: http(await env.ARBITRUM_RPC_URL.get()),
   });
 
   const finalizedBlock = await client.getBlock({ blockTag: 'finalized' });
@@ -49,7 +49,7 @@ async function runIndexer(env: Env) {
     if (currentTo > toBlock) currentTo = toBlock;
 
     const logs = await client.getContractEvents({
-      address: env.AUCTION_CONTRACT_ADDRESS,
+      address: env.AUCTION_CONTRACT_ADDRESS as `0x${string}`,
       abi: abi as any,
       fromBlock: currentFrom,
       toBlock: currentTo,

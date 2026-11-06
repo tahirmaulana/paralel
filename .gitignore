@@ -1,16 +1,20 @@
 # Context Snapshot
+.local/
 CONTEXT.md
-scripts/
-context.config.json
+CONTEXT.md.tmp
 
 # secrets
 .env
 .env.*
+.env.local
+.env.local.*
+.env.vars
+.env.vars.*
+.dev.vars
+.dev.vars.*
 !.env.example
 *.pem
 *.key
-.env.local
-.dev.vars
 
 # node
 node_modules/
@@ -23,14 +27,9 @@ dist/
 contracts/out/
 contracts/cache/
 contracts/broadcast/
+contracts/lib/
 
 # os / editor
 .DS_Store
 .vscode/
 .idea/
-
-# context generator
-CONTEXT.md.tmp
-
-# foundry lib
-contracts/lib/

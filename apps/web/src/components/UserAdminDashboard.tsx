@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 
 type TabId = 'users' | 'requests';
 
-export function AdminDashboard({ adminWallet }: { adminWallet: string }) {
+export function UserAdminDashboard({ adminWallet }: { adminWallet: string }) {
   const router = useRouter();
   const { disconnect } = useDisconnect();
   
@@ -22,7 +22,7 @@ export function AdminDashboard({ adminWallet }: { adminWallet: string }) {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/kyc?wallet=${adminWallet}&type=${activeTab}`, { cache: 'no-store' });
+      const res = await fetch(`/api/user-admin/kyc?wallet=${adminWallet}&type=${activeTab}`, { cache: 'no-store' });
       const json = await res.json();
       if (res.ok) setData(json.data);
     } catch (err) {
@@ -43,7 +43,7 @@ export function AdminDashboard({ adminWallet }: { adminWallet: string }) {
     
     setIsProcessing(true);
     try {
-      const res = await fetch('/api/admin/kyc/review', {
+      const res = await fetch('/api/user-admin/kyc/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ adminWallet, userId: selectedUser.userId, status, comment }),

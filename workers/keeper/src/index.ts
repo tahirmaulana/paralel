@@ -23,7 +23,7 @@ import {
   type PublicClient,
   type WalletClient,
 } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts'; // ← FIX: dari viem/accounts
+import { privateKeyToAccount } from 'viem/accounts';
 import { arbitrumSepolia } from 'viem/chains';
 import { drizzle } from 'drizzle-orm/neon-http';
 import { neon } from '@neondatabase/serverless';
@@ -260,8 +260,6 @@ async function executeAction(
   try {
     let txHash: `0x${string}`;
 
-    // switch per kind → functionName definitif per cabang,
-    // sehingga request dari simulateContract bertipe konklusif.
     switch (kind) {
       case 'startAwarding': {
         const { request } = await publicClient.simulateContract({
@@ -333,24 +331,25 @@ async function executeAction(
 // ─── Orchestrator ─────────────────────────────────────────────
 
 async function runKeeper(env: Env) {
-  const sqlClient = neon(env.DATABASE_URL);
+  // Menggunakan .get() karena Secrets Store
+  const sqlClient = neon(await env.DATABASE_URL.get());
   const db = drizzle(sqlClient);
 
   const publicClient: PublicClient = createPublicClient({
     chain: arbitrumSepolia,
-    transport: http(env.ARBITRUM_RPC_URL),
+    transport: http(await env.ARBITRUM_RPC_URL.get()),
   });
 
-  const rawPk = env.RELAYER_PRIVATE_KEY.startsWith('0x')
-    ? env.RELAYER_PRIVATE_KEY
-    : (`0x${env.RELAYER_PRIVATE_KEY}` as `0x${string}`);
+  // Ekstraksi Private Key yang lebih bersih dan aman untuk TypeScript
+  const pkString = await env.RELAYER_PRIVATE_KEY.get();
+  const rawPk = (pkString.startsWith('0x') ? pkString : `0x${pkString}`) as `0x${string}`;
 
   const account = privateKeyToAccount(rawPk);
 
   const walletClient = createWalletClient({
     account,
     chain: arbitrumSepolia,
-    transport: http(env.ARBITRUM_RPC_URL),
+    transport: http(await env.ARBITRUM_RPC_URL.get()),
   });
 
   const maxActions = Math.max(1, Number(env.MAX_ACTIONS_PER_RUN ?? '5'));
@@ -360,9 +359,13 @@ async function runKeeper(env: Env) {
   const nowSec = latestBlock.timestamp;
 
   const candidates = await fetchCandidates(db, maxCandidates);
+  
+  // Casting AUCTION_CONTRACT_ADDRESS sebagai `0x${string}`
+  const contractAddress = env.AUCTION_CONTRACT_ADDRESS as `0x${string}`;
+  
   const deadlines = await fetchDeadlines(
     publicClient,
-    env.AUCTION_CONTRACT_ADDRESS,
+    contractAddress,
     candidates
   );
 
@@ -375,7 +378,7 @@ async function runKeeper(env: Env) {
       await executeAction(
         publicClient,
         walletClient,
-        env.AUCTION_CONTRACT_ADDRESS,
+        contractAddress,
         action
       )
     );

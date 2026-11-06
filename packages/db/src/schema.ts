@@ -55,6 +55,9 @@ export const partners = pgTable('partners', {
   name: text('name').notNull(),
   category: text('category'),
   city: text('city'),
+  documentNumber: text('document_number'), // Untuk Nomor SK / SIUP
+  address: text('address'),                // Untuk Alamat Fisik
+  photo: text('photo'),                    // Untuk Foto (Base64)
   active: boolean('active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [

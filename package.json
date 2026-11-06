@@ -2,10 +2,7 @@
   "name": "paralel",
   "version": "1.0.0",
   "type": "module",
-  "scripts": {
-    "context:build": "tsx scripts/context/build.ts",
-    "context:check": "tsx scripts/context/build.ts --check"
-  },
+  
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261101.1",
     "@types/node": "^20.0.0",
