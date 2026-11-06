@@ -1,16 +1,28 @@
 // @file workers/keeper/src/types.ts
 
+export interface SecretsStoreSecret {
+  get(): Promise<string>;
+}
+
 export interface Env {
-  DATABASE_URL: { get(): Promise<string> };
-  ARBITRUM_RPC_URL: { get(): Promise<string> };
+  DATABASE_URL: SecretsStoreSecret;
+  ARBITRUM_RPC_URL: SecretsStoreSecret;
+  RELAYER_PRIVATE_KEY: SecretsStoreSecret;
+
   AUCTION_CONTRACT_ADDRESS: string;
-  RELAYER_PRIVATE_KEY: { get(): Promise<string> };
   MAX_ACTIONS_PER_RUN?: string;
   MAX_CANDIDATES?: string;
 }
 
-export type KeeperActionKind = 'startAwarding' | 'advanceCandidate' | 'expireCollection';
-export type DbAuctionStatus = 'SCHEDULED' | 'AWARDING' | 'COLLECTION';
+export type KeeperActionKind =
+  | 'startAwarding'
+  | 'advanceCandidate'
+  | 'expireCollection';
+
+export type DbAuctionStatus =
+  | 'SCHEDULED'
+  | 'AWARDING'
+  | 'COLLECTION';
 
 export type RoundDeadlines = {
   closeAt: bigint;

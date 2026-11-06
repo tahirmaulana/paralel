@@ -1,17 +1,21 @@
 // @file workers/keeper/src/index.ts
 // Cloudflare Worker: cron * * * * * — trigger on-chain untuk PARALEL.
 //
-// Kondisi yang dipicu (lihat docs/CONTRACT_SPEC.md §3.4, §3.6, §3.8):
-//   A. SCHEDULED & now >= closeAt        -> startAwarding(auctionKey, roundNo)
-//   B. AWARDING  & now >  awardingDeadline -> advanceCandidate(auctionKey, roundNo)
-//   C. COLLECTION & now > collectionDeadline -> expireCollection(auctionKey, roundNo)
+// Kondisi yang dipicu:
+//   A. SCHEDULED & now >= closeAt
+//      -> startAwarding(auctionKey, roundNo)
 //
-// Keeper TIDAK menulis ke DB; DB hanya dibaca. Deadline B/C dibaca dari
-// getRound() on-chain karena schema DB tidak menyimpan awarding_deadline /
-// collection_deadline (lihat packages/db/src/schema.ts).
+//   B. AWARDING & now > awardingDeadline
+//      -> advanceCandidate(auctionKey, roundNo)
 //
-// Idempoten: revert karena "TooEarly" / "WrongPhase" / dll hanya di-log,
-// tidak membuat Worker crash (paralel-indexer-keeper_SKILL.md).
+//   C. COLLECTION & now > collectionDeadline
+//      -> expireCollection(auctionKey, roundNo)
+//
+// Keeper TIDAK menulis ke database. Database hanya dibaca.
+// Deadline dibaca dari getRound() pada smart contract.
+//
+// Idempoten: revert karena TooEarly, WrongPhase, dan kondisi serupa
+// hanya dicatat ke log dan tidak membuat Worker crash.
 
 import {
   createPublicClient,
@@ -23,13 +27,18 @@ import {
   type PublicClient,
   type WalletClient,
 } from 'viem';
+
 import { privateKeyToAccount } from 'viem/accounts';
 import { arbitrumSepolia } from 'viem/chains';
 import { drizzle } from 'drizzle-orm/neon-http';
 import { neon } from '@neondatabase/serverless';
 import { and, eq, inArray } from 'drizzle-orm';
 
-import { auctions, auctionRounds } from '../../../packages/db/src/schema';
+import {
+  auctions,
+  auctionRounds,
+} from '../../../packages/db/src/schema';
+
 import type {
   Env,
   KeeperActionKind,
@@ -38,9 +47,10 @@ import type {
   Candidate,
   KeeperAction,
   ExecutionResult,
+  SecretsStoreSecret,
 } from './types';
 
-// ─── ABI (hanya fungsi yang dipakai keeper) ────────────────────
+// ABI hanya berisi fungsi yang diperlukan keeper.
 const keeperAbi = parseAbi([
   'function startAwarding(bytes32 auctionKey, uint16 roundNo)',
   'function advanceCandidate(bytes32 auctionKey, uint16 roundNo)',
@@ -48,49 +58,220 @@ const keeperAbi = parseAbi([
   'function getRound(bytes32 auctionKey, uint16 roundNo) view returns ((uint128 startingBid, uint128 bidIncrement, uint64 openAt, uint64 closeAt, uint128 currentBid, address currentLeader, uint64 bidSeq, address[10] topRanks, uint8 awardingIndex, uint64 awardingDeadline, address winner, uint128 winnerStake, uint64 collectionDeadline, uint64 claimPeriodEnd))',
 ] as const);
 
-// ─── Helpers ───────────────────────────────────────────────────
+// ─── Binding dan configuration helpers ─────────────────────────
 
-function auctionKeyOf(auctionCode: string): `0x${string}` {
+async function getSecret(
+  binding: SecretsStoreSecret | undefined,
+  bindingName: string
+): Promise<string> {
+  if (!binding) {
+    throw new Error(
+      `Missing Secrets Store binding: ${bindingName}`
+    );
+  }
+
+  if (typeof binding.get !== 'function') {
+    throw new Error(
+      `${bindingName} is not a valid Secrets Store binding`
+    );
+  }
+
+  const value = await binding.get();
+
+  if (typeof value !== 'string') {
+    throw new Error(
+      `${bindingName} Secrets Store binding did not return a string`
+    );
+  }
+
+  const normalizedValue = value.trim();
+
+  if (!normalizedValue) {
+    throw new Error(`${bindingName} is empty`);
+  }
+
+  return normalizedValue;
+}
+
+function validateRpcUrl(value: string): string {
+  let parsedUrl: URL;
+
+  try {
+    parsedUrl = new URL(value);
+  } catch {
+    throw new Error(
+      'ARBITRUM_RPC_URL is not a valid URL'
+    );
+  }
+
+  if (
+    parsedUrl.protocol !== 'https:' &&
+    parsedUrl.protocol !== 'http:'
+  ) {
+    throw new Error(
+      'ARBITRUM_RPC_URL must start with https:// or http://'
+    );
+  }
+
+  return value;
+}
+
+function validateDatabaseUrl(value: string): string {
+  let parsedUrl: URL;
+
+  try {
+    parsedUrl = new URL(value);
+  } catch {
+    throw new Error(
+      'DATABASE_URL is not a valid PostgreSQL connection URL'
+    );
+  }
+
+  if (
+    parsedUrl.protocol !== 'postgres:' &&
+    parsedUrl.protocol !== 'postgresql:'
+  ) {
+    throw new Error(
+      'DATABASE_URL must start with postgres:// or postgresql://'
+    );
+  }
+
+  return value;
+}
+
+function validateContractAddress(
+  value: string | undefined
+): `0x${string}` {
+  if (!value) {
+    throw new Error(
+      'Missing AUCTION_CONTRACT_ADDRESS environment variable'
+    );
+  }
+
+  const normalizedValue = value.trim();
+
+  if (!/^0x[a-fA-F0-9]{40}$/.test(normalizedValue)) {
+    throw new Error(
+      'AUCTION_CONTRACT_ADDRESS must be a valid EVM address'
+    );
+  }
+
+  return normalizedValue as `0x${string}`;
+}
+
+function normalizePrivateKey(
+  value: string
+): `0x${string}` {
+  const normalizedValue = value.startsWith('0x')
+    ? value
+    : `0x${value}`;
+
+  if (!/^0x[a-fA-F0-9]{64}$/.test(normalizedValue)) {
+    throw new Error(
+      'RELAYER_PRIVATE_KEY must contain exactly 32 bytes'
+    );
+  }
+
+  return normalizedValue as `0x${string}`;
+}
+
+function parsePositiveInteger(
+  value: string | undefined,
+  fallback: number,
+  variableName: string
+): number {
+  if (!value || !value.trim()) {
+    return fallback;
+  }
+
+  const result = Number(value);
+
+  if (
+    !Number.isSafeInteger(result) ||
+    result <= 0
+  ) {
+    throw new Error(
+      `${variableName} must be a positive integer`
+    );
+  }
+
+  return result;
+}
+
+// ─── General helpers ───────────────────────────────────────────
+
+function auctionKeyOf(
+  auctionCode: string
+): `0x${string}` {
   return keccak256(toBytes(auctionCode));
 }
 
-function parseRoundDeadlines(result: unknown): RoundDeadlines | null {
-  if (!result || typeof result !== 'object') return null;
-
-  const obj = result as Record<string, unknown>;
-  if (
-    typeof obj.closeAt === 'bigint' &&
-    typeof obj.awardingDeadline === 'bigint' &&
-    typeof obj.collectionDeadline === 'bigint'
-  ) {
-    return {
-      closeAt: obj.closeAt,
-      awardingDeadline: obj.awardingDeadline,
-      collectionDeadline: obj.collectionDeadline,
-    };
+function parseRoundDeadlines(
+  result: unknown
+): RoundDeadlines | null {
+  if (!result || typeof result !== 'object') {
+    return null;
   }
 
+  // Viem dapat mengembalikan tuple sebagai array.
   if (Array.isArray(result)) {
     const closeAt = result[3];
     const awardingDeadline = result[9];
     const collectionDeadline = result[12];
+
     if (
       typeof closeAt === 'bigint' &&
       typeof awardingDeadline === 'bigint' &&
       typeof collectionDeadline === 'bigint'
     ) {
-      return { closeAt, awardingDeadline, collectionDeadline };
+      return {
+        closeAt,
+        awardingDeadline,
+        collectionDeadline,
+      };
     }
+  }
+
+  // Fallback jika hasil tuple dikembalikan sebagai object bernama.
+  const objectResult =
+    result as Record<string, unknown>;
+
+  if (
+    typeof objectResult.closeAt === 'bigint' &&
+    typeof objectResult.awardingDeadline === 'bigint' &&
+    typeof objectResult.collectionDeadline === 'bigint'
+  ) {
+    return {
+      closeAt: objectResult.closeAt,
+      awardingDeadline:
+        objectResult.awardingDeadline,
+      collectionDeadline:
+        objectResult.collectionDeadline,
+    };
   }
 
   return null;
 }
 
-function classifyError(err: any): { message: string; expected: boolean } {
-  const raw =
-    err?.shortMessage ||
-    err?.message ||
-    (typeof err === 'string' ? err : 'unknown error');
+function classifyError(
+  error: unknown
+): {
+  message: string;
+  expected: boolean;
+} {
+  const candidateError = error as {
+    shortMessage?: unknown;
+    message?: unknown;
+  };
+
+  const rawMessage =
+    typeof candidateError?.shortMessage === 'string'
+      ? candidateError.shortMessage
+      : typeof candidateError?.message === 'string'
+        ? candidateError.message
+        : typeof error === 'string'
+          ? error
+          : 'unknown error';
 
   const expectedPatterns = [
     'TooEarly',
@@ -99,12 +280,18 @@ function classifyError(err: any): { message: string; expected: boolean } {
     'BiddingClosed',
     'AuctionNotBiddable',
   ];
-  const expected = expectedPatterns.some((p) => raw.includes(p));
 
-  return { message: raw, expected };
+  const expected = expectedPatterns.some(
+    (pattern) => rawMessage.includes(pattern)
+  );
+
+  return {
+    message: rawMessage,
+    expected,
+  };
 }
 
-// ─── Kandidat & deadline ──────────────────────────────────────
+// ─── Kandidat dan deadline ─────────────────────────────────────
 
 async function fetchCandidates(
   db: any,
@@ -122,18 +309,27 @@ async function fetchCandidates(
       auctionRounds,
       and(
         eq(auctionRounds.auctionId, auctions.id),
-        eq(auctionRounds.roundNo, auctions.currentRound)
+        eq(
+          auctionRounds.roundNo,
+          auctions.currentRound
+        )
       )
     )
-    .where(inArray(auctions.status, ['SCHEDULED', 'AWARDING', 'COLLECTION']))
+    .where(
+      inArray(auctions.status, [
+        'SCHEDULED',
+        'AWARDING',
+        'COLLECTION',
+      ])
+    )
     .limit(maxCandidates);
 
-  return rows.map((r: any) => ({
-    auctionId: r.auctionId,
-    auctionCode: r.auctionCode,
-    auctionKey: auctionKeyOf(r.auctionCode),
-    status: r.status as DbAuctionStatus,
-    currentRound: Number(r.currentRound),
+  return rows.map((row: any) => ({
+    auctionId: row.auctionId,
+    auctionCode: row.auctionCode,
+    auctionKey: auctionKeyOf(row.auctionCode),
+    status: row.status as DbAuctionStatus,
+    currentRound: Number(row.currentRound),
   }));
 }
 
@@ -142,48 +338,102 @@ async function fetchDeadlines(
   contractAddress: `0x${string}`,
   candidates: Candidate[]
 ): Promise<Map<string, RoundDeadlines>> {
-  const result = new Map<string, RoundDeadlines>();
-  if (candidates.length === 0) return result;
+  const deadlinesByAuction =
+    new Map<string, RoundDeadlines>();
+
+  if (candidates.length === 0) {
+    return deadlinesByAuction;
+  }
 
   let multicallResults: any[];
+
   try {
-    multicallResults = await publicClient.multicall({
-      contracts: candidates.map((c) => ({
-        address: contractAddress,
-        abi: keeperAbi,
-        functionName: 'getRound' as const,
-        args: [c.auctionKey, c.currentRound] as const,
-      })),
-      allowFailure: true,
-    });
-  } catch (err: any) {
-    console.error('[keeper] multicall getRound failed:', err?.message ?? err);
-    return result;
+    multicallResults =
+      await publicClient.multicall({
+        contracts: candidates.map(
+          (candidate) => ({
+            address: contractAddress,
+            abi: keeperAbi,
+            functionName: 'getRound' as const,
+            args: [
+              candidate.auctionKey,
+              candidate.currentRound,
+            ] as const,
+          })
+        ),
+        allowFailure: true,
+      });
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : String(error);
+
+    console.error(
+      '[keeper] multicall getRound failed:',
+      message
+    );
+
+    return deadlinesByAuction;
   }
 
-  for (let i = 0; i < candidates.length; i++) {
-    const c = candidates[i];
-    const res = multicallResults[i];
+  for (
+    let index = 0;
+    index < candidates.length;
+    index++
+  ) {
+    const candidate = candidates[index];
+    const multicallResult =
+      multicallResults[index];
 
-    if (res.status !== 'success') {
+    if (!multicallResult) {
       console.error(
-        `[keeper] getRound failed for ${c.auctionCode} round ${c.currentRound}:`,
-        res.error?.shortMessage ?? res.error?.message ?? res.error
+        `[keeper] missing getRound result for ` +
+          `${candidate.auctionCode} ` +
+          `round ${candidate.currentRound}`
       );
+
       continue;
     }
 
-    const deadlines = parseRoundDeadlines(res.result);
+    if (multicallResult.status !== 'success') {
+      const errorMessage =
+        multicallResult.error?.shortMessage ??
+        multicallResult.error?.message ??
+        multicallResult.error ??
+        'unknown multicall error';
+
+      console.error(
+        `[keeper] getRound failed for ` +
+          `${candidate.auctionCode} ` +
+          `round ${candidate.currentRound}:`,
+        errorMessage
+      );
+
+      continue;
+    }
+
+    const deadlines = parseRoundDeadlines(
+      multicallResult.result
+    );
+
     if (!deadlines) {
       console.error(
-        `[keeper] cannot parse getRound result for ${c.auctionCode} round ${c.currentRound}`
+        `[keeper] cannot parse getRound result for ` +
+          `${candidate.auctionCode} ` +
+          `round ${candidate.currentRound}`
       );
+
       continue;
     }
-    result.set(c.auctionId, deadlines);
+
+    deadlinesByAuction.set(
+      candidate.auctionId,
+      deadlines
+    );
   }
 
-  return result;
+  return deadlinesByAuction;
 }
 
 function planActions(
@@ -193,54 +443,74 @@ function planActions(
 ): KeeperAction[] {
   const actions: KeeperAction[] = [];
 
-  for (const c of candidates) {
-    const d = deadlines.get(c.auctionId);
-    if (!d) continue;
+  for (const candidate of candidates) {
+    const roundDeadlines = deadlines.get(
+      candidate.auctionId
+    );
 
-    if (c.status === 'SCHEDULED' && nowSec >= d.closeAt) {
-      actions.push({
-        kind: 'startAwarding',
-        candidate: c,
-        nowSec,
-        deadline: d.closeAt,
-      });
+    if (!roundDeadlines) {
       continue;
     }
 
     if (
-      c.status === 'AWARDING' &&
-      d.awardingDeadline > 0n &&
-      nowSec > d.awardingDeadline
+      candidate.status === 'SCHEDULED' &&
+      nowSec >= roundDeadlines.closeAt
+    ) {
+      actions.push({
+        kind: 'startAwarding',
+        candidate,
+        nowSec,
+        deadline: roundDeadlines.closeAt,
+      });
+
+      continue;
+    }
+
+    if (
+      candidate.status === 'AWARDING' &&
+      roundDeadlines.awardingDeadline > 0n &&
+      nowSec > roundDeadlines.awardingDeadline
     ) {
       actions.push({
         kind: 'advanceCandidate',
-        candidate: c,
+        candidate,
         nowSec,
-        deadline: d.awardingDeadline,
+        deadline:
+          roundDeadlines.awardingDeadline,
       });
+
       continue;
     }
 
     if (
-      c.status === 'COLLECTION' &&
-      d.collectionDeadline > 0n &&
-      nowSec > d.collectionDeadline
+      candidate.status === 'COLLECTION' &&
+      roundDeadlines.collectionDeadline > 0n &&
+      nowSec > roundDeadlines.collectionDeadline
     ) {
       actions.push({
         kind: 'expireCollection',
-        candidate: c,
+        candidate,
         nowSec,
-        deadline: d.collectionDeadline,
+        deadline:
+          roundDeadlines.collectionDeadline,
       });
     }
   }
 
-  const priority: Record<KeeperActionKind, number> = {
+  const priority: Record<
+    KeeperActionKind,
+    number
+  > = {
     startAwarding: 1,
     advanceCandidate: 2,
     expireCollection: 3,
   };
-  actions.sort((a, b) => priority[a.kind] - priority[b.kind]);
+
+  actions.sort(
+    (firstAction, secondAction) =>
+      priority[firstAction.kind] -
+      priority[secondAction.kind]
+  );
 
   return actions;
 }
@@ -254,50 +524,92 @@ async function executeAction(
   action: KeeperAction
 ): Promise<ExecutionResult> {
   const { kind, candidate } = action;
-  const args = [candidate.auctionKey, candidate.currentRound] as const;
-  const account = walletClient.account!;
+
+  const args = [
+    candidate.auctionKey,
+    candidate.currentRound,
+  ] as const;
+
+  const account = walletClient.account;
+
+  if (!account) {
+    throw new Error(
+      'Keeper wallet client has no relayer account'
+    );
+  }
 
   try {
     let txHash: `0x${string}`;
 
     switch (kind) {
       case 'startAwarding': {
-        const { request } = await publicClient.simulateContract({
-          account,
-          address: contractAddress,
-          abi: keeperAbi,
-          functionName: 'startAwarding',
-          args,
-        });
-        txHash = await walletClient.writeContract(request);
+        const { request } =
+          await publicClient.simulateContract({
+            account,
+            address: contractAddress,
+            abi: keeperAbi,
+            functionName: 'startAwarding',
+            args,
+          });
+
+        txHash =
+          await walletClient.writeContract(
+            request
+          );
+
         break;
       }
+
       case 'advanceCandidate': {
-        const { request } = await publicClient.simulateContract({
-          account,
-          address: contractAddress,
-          abi: keeperAbi,
-          functionName: 'advanceCandidate',
-          args,
-        });
-        txHash = await walletClient.writeContract(request);
+        const { request } =
+          await publicClient.simulateContract({
+            account,
+            address: contractAddress,
+            abi: keeperAbi,
+            functionName: 'advanceCandidate',
+            args,
+          });
+
+        txHash =
+          await walletClient.writeContract(
+            request
+          );
+
         break;
       }
+
       case 'expireCollection': {
-        const { request } = await publicClient.simulateContract({
-          account,
-          address: contractAddress,
-          abi: keeperAbi,
-          functionName: 'expireCollection',
-          args,
-        });
-        txHash = await walletClient.writeContract(request);
+        const { request } =
+          await publicClient.simulateContract({
+            account,
+            address: contractAddress,
+            abi: keeperAbi,
+            functionName: 'expireCollection',
+            args,
+          });
+
+        txHash =
+          await walletClient.writeContract(
+            request
+          );
+
         break;
+      }
+
+      default: {
+        const exhaustiveCheck: never = kind;
+
+        throw new Error(
+          `Unsupported keeper action: ${exhaustiveCheck}`
+        );
       }
     }
 
     console.log(
-      `[keeper] sent: ${kind} ${candidate.auctionCode} round ${candidate.currentRound} tx=${txHash}`
+      `[keeper] sent: ${kind} ` +
+        `${candidate.auctionCode} ` +
+        `round ${candidate.currentRound} ` +
+        `tx=${txHash}`
     );
 
     return {
@@ -307,17 +619,28 @@ async function executeAction(
       txHash,
       ok: true,
     };
-  } catch (err: any) {
-    const { message, expected } = classifyError(err);
+  } catch (error: unknown) {
+    const {
+      message,
+      expected,
+    } = classifyError(error);
+
     if (expected) {
       console.log(
-        `[keeper] skip (idempotent): ${kind} ${candidate.auctionCode} round ${candidate.currentRound} — ${message}`
+        `[keeper] skip (idempotent): ${kind} ` +
+          `${candidate.auctionCode} ` +
+          `round ${candidate.currentRound} ` +
+          `- ${message}`
       );
     } else {
       console.error(
-        `[keeper] failed: ${kind} ${candidate.auctionCode} round ${candidate.currentRound} — ${message}`
+        `[keeper] failed: ${kind} ` +
+          `${candidate.auctionCode} ` +
+          `round ${candidate.currentRound} ` +
+          `- ${message}`
       );
     }
+
     return {
       kind,
       auctionCode: candidate.auctionCode,
@@ -328,66 +651,123 @@ async function executeAction(
   }
 }
 
-// ─── Orchestrator ─────────────────────────────────────────────
+// ─── Orchestrator ──────────────────────────────────────────────
 
 async function runKeeper(env: Env) {
-  // Menggunakan .get() karena Secrets Store
-  const sqlClient = neon(await env.DATABASE_URL.get());
+  // Secrets Store dibaca satu kali per invocation.
+  const [
+    databaseSecret,
+    rpcSecret,
+    relayerPrivateKeySecret,
+  ] = await Promise.all([
+    getSecret(
+      env.DATABASE_URL,
+      'DATABASE_URL'
+    ),
+    getSecret(
+      env.ARBITRUM_RPC_URL,
+      'ARBITRUM_RPC_URL'
+    ),
+    getSecret(
+      env.RELAYER_PRIVATE_KEY,
+      'RELAYER_PRIVATE_KEY'
+    ),
+  ]);
+
+  const databaseUrl =
+    validateDatabaseUrl(databaseSecret);
+
+  const rpcUrl =
+    validateRpcUrl(rpcSecret);
+
+  const rawPrivateKey =
+    normalizePrivateKey(
+      relayerPrivateKeySecret
+    );
+
+  const contractAddress =
+    validateContractAddress(
+      env.AUCTION_CONTRACT_ADDRESS
+    );
+
+  const maxActions = parsePositiveInteger(
+    env.MAX_ACTIONS_PER_RUN,
+    5,
+    'MAX_ACTIONS_PER_RUN'
+  );
+
+  const maxCandidates = parsePositiveInteger(
+    env.MAX_CANDIDATES,
+    25,
+    'MAX_CANDIDATES'
+  );
+
+  const sqlClient = neon(databaseUrl);
   const db = drizzle(sqlClient);
 
-  const publicClient: PublicClient = createPublicClient({
-    chain: arbitrumSepolia,
-    transport: http(await env.ARBITRUM_RPC_URL.get()),
-  });
+  const transport = http(rpcUrl);
 
-  // Ekstraksi Private Key yang lebih bersih dan aman untuk TypeScript
-  const pkString = await env.RELAYER_PRIVATE_KEY.get();
-  const rawPk = (pkString.startsWith('0x') ? pkString : `0x${pkString}`) as `0x${string}`;
+  const publicClient: PublicClient =
+    createPublicClient({
+      chain: arbitrumSepolia,
+      transport,
+    });
 
-  const account = privateKeyToAccount(rawPk);
+  const account =
+    privateKeyToAccount(rawPrivateKey);
 
   const walletClient = createWalletClient({
     account,
     chain: arbitrumSepolia,
-    transport: http(await env.ARBITRUM_RPC_URL.get()),
+    transport,
   });
 
-  const maxActions = Math.max(1, Number(env.MAX_ACTIONS_PER_RUN ?? '5'));
-  const maxCandidates = Math.max(1, Number(env.MAX_CANDIDATES ?? '25'));
+  const latestBlock =
+    await publicClient.getBlock({
+      blockTag: 'latest',
+    });
 
-  const latestBlock = await publicClient.getBlock({ blockTag: 'latest' });
   const nowSec = latestBlock.timestamp;
 
-  const candidates = await fetchCandidates(db, maxCandidates);
-  
-  // Casting AUCTION_CONTRACT_ADDRESS sebagai `0x${string}`
-  const contractAddress = env.AUCTION_CONTRACT_ADDRESS as `0x${string}`;
-  
+  const candidates = await fetchCandidates(
+    db,
+    maxCandidates
+  );
+
   const deadlines = await fetchDeadlines(
     publicClient,
     contractAddress,
     candidates
   );
 
-  const actions = planActions(candidates, deadlines, nowSec);
-  const toExecute = actions.slice(0, maxActions);
+  const actions = planActions(
+    candidates,
+    deadlines,
+    nowSec
+  );
+
+  const actionsToExecute =
+    actions.slice(0, maxActions);
 
   const results: ExecutionResult[] = [];
-  for (const action of toExecute) {
-    results.push(
-      await executeAction(
-        publicClient,
-        walletClient,
-        contractAddress,
-        action
-      )
+
+  // Dieksekusi berurutan agar nonce relayer tidak bertabrakan.
+  for (const action of actionsToExecute) {
+    const result = await executeAction(
+      publicClient,
+      walletClient,
+      contractAddress,
+      action
     );
+
+    results.push(result);
   }
 
   return {
     ok: true,
     nowSec: nowSec.toString(),
-    latestBlock: latestBlock.number.toString(),
+    latestBlock:
+      latestBlock.number.toString(),
     candidates: candidates.length,
     actions: actions.length,
     executed: results.length,
@@ -395,7 +775,7 @@ async function runKeeper(env: Env) {
   };
 }
 
-// ─── Worker entry ─────────────────────────────────────────────
+// ─── Worker entry ──────────────────────────────────────────────
 
 export default {
   async scheduled(
@@ -404,21 +784,51 @@ export default {
     ctx: ExecutionContext
   ): Promise<void> {
     ctx.waitUntil(
-      runKeeper(env).catch((err) => {
-        console.error('[keeper] cron fatal:', err?.message ?? err);
-      })
+      runKeeper(env).catch(
+        (error: unknown) => {
+          const message =
+            error instanceof Error
+              ? error.message
+              : String(error);
+
+          console.error(
+            '[keeper] cron fatal:',
+            message
+          );
+        }
+      )
     );
   },
 
-  async fetch(_request: Request, env: Env): Promise<Response> {
+  async fetch(
+    _request: Request,
+    env: Env
+  ): Promise<Response> {
     try {
       const result = await runKeeper(env);
-      return Response.json(result, { status: 200 });
-    } catch (err: any) {
-      console.error('[keeper] manual run fatal:', err?.message ?? err);
+
+      return Response.json(result, {
+        status: 200,
+      });
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'unknown error';
+
+      console.error(
+        '[keeper] manual run fatal:',
+        message
+      );
+
       return Response.json(
-        { ok: false, error: err?.message ?? 'unknown error' },
-        { status: 500 }
+        {
+          ok: false,
+          error: message,
+        },
+        {
+          status: 500,
+        }
       );
     }
   },
