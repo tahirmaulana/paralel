@@ -84,6 +84,7 @@ Nama variabel (nilai tidak pernah dimasukkan ke repo; simpan sebagai secret di C
 | Variabel | Dipakai oleh | Isi |
 |---|---|---|
 | `DATABASE_URL` | web, workers | Koneksi Neon |
+| `USER_ADMIN_WALLET` | web | Daftar wallet (comma-separated) yang memiliki akses ke Admin UI untuk review KYC. |
 | `ARBITRUM_RPC_URL` | web, workers | RPC Arbitrum (Sepolia untuk pilot) |
 | `CHAIN_ID` | semua | Chain yang dipakai |
 | `AUCTION_CONTRACT_ADDRESS` | semua | Alamat kontrak hasil deploy |

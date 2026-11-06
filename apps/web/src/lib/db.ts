@@ -191,12 +191,6 @@ export type NotaryPendingApproval = {
   pendingAt: Date | null;
 };
 
-/**
- * Global queue: semua auction PENDING yang belum ada NOTARY_APPROVED.
- * Tidak difilter oleh wallet tertentu (PARALEL.md §4.1, D11.5).
- * Sort: guarantor_approved_at ASC (yang siap sign lebih dulu),
- * lalu pending_at ASC (yang belum approved di bawah).
- */
 export async function getNotaryPendingApprovals(): Promise<NotaryPendingApproval[]> {
   const rows = await db
     .select({
@@ -260,7 +254,7 @@ export async function getNotaryPendingApprovals(): Promise<NotaryPendingApproval
   }));
 }
 
-// ─── NOTARY: COLLECTIONS (PER-NOTARY via attestations) ──────
+// ─── NOTARY: COLLECTIONS ──────
 
 export type NotaryCollectionRow = {
   auctionId: string;
@@ -318,7 +312,7 @@ export async function getNotaryCollections(
   return rows as NotaryCollectionRow[];
 }
 
-// ─── NOTARY: RUN (GLOBAL VIEW) ──────────────────────────────
+// ─── NOTARY: RUN ───────────────────────────────────────
 
 export type NotaryRunRow = {
   auctionId: string;
@@ -333,11 +327,6 @@ export type NotaryRunRow = {
   bidCount: number;
 };
 
-/**
- * Global view: semua SCHEDULED + OPEN. Tidak difilter (PARALEL.md D11.5).
- * Sort di query: OPEN (derived) by closeAt ASC, lalu SCHEDULED by openAt ASC.
- * Status derived di JS menggunakan now (OPEN = openAt <= now < closeAt).
- */
 export async function getNotaryRunAuctions(): Promise<NotaryRunRow[]> {
   const rows = await db
     .select({
@@ -374,7 +363,6 @@ export async function getNotaryRunAuctions(): Promise<NotaryRunRow[]> {
     )
     .where(inArray(schema.auctions.status, ['SCHEDULED', 'OPEN']));
 
-  // Sort client-side: derived OPEN by closeAt ASC, SCHEDULED by openAt ASC.
   const now = Date.now();
   const enriched = rows.map((r) => {
     const isLive = r.status === 'OPEN' || r.openAt.getTime() <= now;
@@ -390,7 +378,7 @@ export async function getNotaryRunAuctions(): Promise<NotaryRunRow[]> {
   return enriched.map(({ _isLive, ...r }) => r);
 }
 
-// ─── NOTARY: PASSED (PER-NOTARY via attestations) ───────────
+// ─── NOTARY: PASSED ───────────
 
 export type NotaryPassedRow = {
   auctionId: string;
@@ -434,10 +422,6 @@ export async function getNotaryPassedAuctions(
 }
 
 // ─── GUARANTOR QUERIES ──────────────────────────────────────
-// Ref: PARALEL.md Lampiran D12.5
-//
-// Semua tab filter `guarantor_id = this`. Guarantor pre-assigned saat
-// CREATED (bukan shared queue seperti notary).
 
 export type GuarantorProfile = {
   partnerId: string;
@@ -470,8 +454,6 @@ export async function getGuarantorByWallet(
     .limit(1);
   return row ?? null;
 }
-
-// ─── Guarantor: Submission ─────────────────────────────────
 
 export type GuarantorSubmissionRow = {
   auctionId: string;
@@ -538,8 +520,6 @@ export async function getGuarantorSubmission(
     }));
 }
 
-// ─── Guarantor: Collection ─────────────────────────────────
-
 export type GuarantorCollectionRow = {
   auctionId: string;
   auctionCode: string;
@@ -601,8 +581,6 @@ export async function getGuarantorCollection(
   }));
 }
 
-// ─── Guarantor: Withdrawal ─────────────────────────────────
-
 export type GuarantorWithdrawalRow = {
   auctionId: string;
   auctionCode: string;
@@ -648,8 +626,6 @@ export async function getGuarantorWithdrawal(
     updatedAt: r.updatedAt,
   }));
 }
-
-// ─── Guarantor: Run ────────────────────────────────────────
 
 export type GuarantorRunRow = {
   auctionId: string;
@@ -716,7 +692,6 @@ export async function getGuarantorRun(
   });
 
   enriched.sort((a, b) => {
-    // OPEN (derived live) first, then SCHEDULED, then AWARDING
     if (a._isLive !== b._isLive) return a._isLive ? -1 : 1;
     if (a._isLive) return a.closeAt.getTime() - b.closeAt.getTime();
     if (a.status === 'SCHEDULED' && b.status === 'SCHEDULED') {
@@ -730,8 +705,6 @@ export async function getGuarantorRun(
 
   return enriched.map(({ _isLive, ...r }) => r);
 }
-
-// ─── Guarantor: History ────────────────────────────────────
 
 export type GuarantorHistoryRow = {
   auctionId: string;
@@ -865,32 +838,14 @@ export async function getReceiptData(
     .where(eq(schema.auctions.id, auctionId))
     .limit(1);
 
-  if (
-    !row ||
-    !row.title ||
-    !row.description ||
-    !row.condition
-  ) {
+  if (!row || !row.title || !row.description || !row.condition) {
     return null;
   }
 
-  // Validate type against status
   if (type === 'consignment' && !row.guarantorApprovedAt) return null;
-  if (
-    type === 'collection' &&
-    !['COLLECTION', 'CLAIM_PERIOD', 'SETTLED'].includes(row.status)
-  ) {
-    return null;
-  }
-  if (
-    type === 'withdrawal' &&
-    !['PASSED_IN', 'WITHDRAWN'].includes(row.status)
-  ) {
-    return null;
-  }
+  if (type === 'collection' && !['COLLECTION', 'CLAIM_PERIOD', 'SETTLED'].includes(row.status)) return null;
+  if (type === 'withdrawal' && !['PASSED_IN', 'WITHDRAWN'].includes(row.status)) return null;
 
-  // Approximation: updated_at + 48h = collectionDeadline, + 168h = claimEnd.
-  // Accurate to within a few seconds (indexer lag). Acceptable for prototype.
   const collectionDeadline = row.updatedAt
     ? new Date(row.updatedAt.getTime() + 48 * 3600 * 1000)
     : null;
@@ -921,4 +876,260 @@ export async function getReceiptData(
     collectionDeadline: type === 'collection' ? collectionDeadline : null,
     claimEnd: type === 'collection' ? claimEnd : null,
   };
+}
+
+// ─── USER (BIDDER & CONSIGNOR) QUERIES ─────────────────────
+
+export async function getUserKycStatus(wallet: string) {
+  const [user] = await db
+    .select({ id: schema.users.id })
+    .from(schema.users)
+    .where(eq(schema.users.wallet, wallet.toLowerCase()))
+    .limit(1);
+
+  if (!user) return { userId: null, kycStatus: 'NONE' as const };
+
+  const [kyc] = await db
+    .select({ status: schema.kycProfiles.status })
+    .from(schema.kycProfiles)
+    .where(eq(schema.kycProfiles.userId, user.id))
+    .limit(1);
+
+  return { userId: user.id, kycStatus: kyc?.status ?? ('NONE' as const) };
+}
+
+export async function getUserLiveAuctions(wallet: string) {
+  const normalized = wallet.toLowerCase();
+  const rows = await db
+    .select({
+      auctionId: schema.auctions.id,
+      auctionCode: schema.auctions.auctionCode,
+      title: schema.auctionAssets.title,
+      status: schema.auctions.status,
+      currentRound: schema.auctions.currentRound,
+      startingBid: schema.auctionRounds.startingBid,
+      openAt: schema.auctionRounds.openAt,
+      closeAt: schema.auctionRounds.closeAt,
+      currentBid: sql<bigint>`COALESCE((
+        SELECT MAX(bs.my_bid) FROM bidder_stakes bs
+        WHERE bs.auction_id = ${schema.auctions.id}
+          AND bs.round_no = ${schema.auctions.currentRound}
+      ), 0)`,
+      myBid: sql<bigint | null>`(
+        SELECT my_bid FROM bidder_stakes
+        WHERE auction_id = ${schema.auctions.id}
+          AND round_no = ${schema.auctions.currentRound}
+          AND bidder_wallet = ${normalized}
+        LIMIT 1
+      )`,
+      leaderWallet: sql<string | null>`(
+        SELECT bidder_wallet FROM bidder_stakes
+        WHERE auction_id = ${schema.auctions.id}
+          AND round_no = ${schema.auctions.currentRound}
+          AND rank = 1
+        LIMIT 1
+      )`,
+    })
+    .from(schema.auctions)
+    .innerJoin(
+      schema.auctionAssets,
+      eq(schema.auctionAssets.auctionId, schema.auctions.id),
+    )
+    .innerJoin(
+      schema.auctionRounds,
+      and(
+        eq(schema.auctionRounds.auctionId, schema.auctions.id),
+        eq(schema.auctionRounds.roundNo, schema.auctions.currentRound),
+      ),
+    )
+    .where(inArray(schema.auctions.status, ['SCHEDULED', 'OPEN']));
+
+  // Enrich Leader Name (ambil nama KYC jika ada)
+  const leaderWallets = rows.map(r => r.leaderWallet).filter(Boolean) as string[];
+  const nameMap = new Map<string, string | null>();
+  if (leaderWallets.length > 0) {
+    const profiles = await db.select({ wallet: schema.users.wallet, name: schema.kycProfiles.fullName })
+      .from(schema.users)
+      .leftJoin(schema.kycProfiles, eq(schema.kycProfiles.userId, schema.users.id))
+      .where(inArray(schema.users.wallet, leaderWallets));
+    profiles.forEach(p => nameMap.set(p.wallet, p.name));
+  }
+
+  return rows.map((r) => ({
+    ...r,
+    currentBid: BigInt(r.currentBid),
+    startingBid: BigInt(r.startingBid),
+    myBid: r.myBid ? BigInt(r.myBid) : null,
+    closeAt: r.closeAt.toISOString(),
+    openAt: r.openAt.toISOString(),
+    leaderName: r.leaderWallet ? (nameMap.get(r.leaderWallet) || `${r.leaderWallet.slice(0,6)}...${r.leaderWallet.slice(-4)}`) : '—'
+  }));
+}
+
+export async function getUserJoinedAuctions(wallet: string) {
+  const normalized = wallet.toLowerCase();
+  const rows = await db
+    .select({
+      auctionId: schema.auctions.id,
+      auctionCode: schema.auctions.auctionCode,
+      title: schema.auctionAssets.title,
+      status: schema.auctions.status,
+      currentRound: schema.auctions.currentRound,
+      myBid: sql<bigint>`(
+        SELECT MAX(my_bid) FROM bidder_stakes
+        WHERE auction_id = ${schema.auctions.id}
+          AND round_no = ${schema.auctions.currentRound}
+          AND bidder_wallet = ${normalized}
+      )`,
+    })
+    .from(schema.auctions)
+    .innerJoin(
+      schema.auctionAssets,
+      eq(schema.auctionAssets.auctionId, schema.auctions.id),
+    )
+    .where(
+      sql`EXISTS (
+        SELECT 1 FROM bidder_stakes
+        WHERE auction_id = ${schema.auctions.id}
+          AND bidder_wallet = ${normalized}
+      )`
+    );
+
+  return rows.map((r) => ({
+    ...r,
+    myBid: r.myBid ? BigInt(r.myBid) : null,
+  }));
+}
+
+export async function getUserCreatedAuctions(wallet: string) {
+  const normalized = wallet.toLowerCase();
+  const rows = await db
+    .select({
+      auctionId: schema.auctions.id,
+      auctionCode: schema.auctions.auctionCode,
+      title: schema.auctionAssets.title,
+      status: schema.auctions.status,
+      startingBid: schema.auctionRounds.startingBid,
+    })
+    .from(schema.auctions)
+    .innerJoin(
+      schema.auctionAssets,
+      eq(schema.auctionAssets.auctionId, schema.auctions.id),
+    )
+    .innerJoin(
+      schema.auctionRounds,
+      and(
+        eq(schema.auctionRounds.auctionId, schema.auctions.id),
+        eq(schema.auctionRounds.roundNo, schema.auctions.currentRound),
+      ),
+    )
+    .where(
+      sql`${schema.auctions.consignorId} = (
+        SELECT id FROM users WHERE wallet = ${normalized}
+      )`
+    );
+
+  return rows.map((r) => ({
+    ...r,
+    startingBid: BigInt(r.startingBid),
+  }));
+}
+
+export async function submitUserKyc(
+  wallet: string, 
+  data: { fullName: string, nik: string, address: string, ktpPhoto: string }
+) {
+  const normalized = wallet.toLowerCase();
+  
+  await db.insert(schema.users)
+    .values({ wallet: normalized, userType: 'PUBLIC' })
+    .onConflictDoNothing({ target: schema.users.wallet });
+
+  const [user] = await db
+    .select({ id: schema.users.id })
+    .from(schema.users)
+    .where(eq(schema.users.wallet, normalized))
+    .limit(1);
+
+  if (!user) throw new Error('User creation failed');
+
+  await db.insert(schema.kycProfiles)
+    .values({
+      userId: user.id,
+      fullName: data.fullName,
+      nik: data.nik,
+      address: data.address,
+      ktpPhoto: data.ktpPhoto, // Simpan Base64
+      adminComment: null,      // Reset feedback
+      faceVerified: false,
+      idExtractedByAi: false,
+      status: 'UNVERIFIED', 
+    })
+    .onConflictDoUpdate({
+      target: schema.kycProfiles.userId,
+      set: {
+        fullName: data.fullName,
+        nik: data.nik,
+        address: data.address,
+        ktpPhoto: data.ktpPhoto,
+        adminComment: null,
+        status: 'UNVERIFIED', 
+        updatedAt: new Date(),
+      },
+    });
+
+  return { ok: true };
+}
+
+// ─── ADMIN QUERIES ──────────────────────────────────────────
+
+export async function getUnverifiedKycList() {
+  return await db
+    .select({
+      userId: schema.users.id,
+      wallet: schema.users.wallet,
+      fullName: schema.kycProfiles.fullName,
+      nik: schema.kycProfiles.nik,
+      address: schema.kycProfiles.address,
+      ktpPhoto: schema.kycProfiles.ktpPhoto,
+      adminComment: schema.kycProfiles.adminComment,
+      createdAt: schema.kycProfiles.createdAt,
+    })
+    .from(schema.kycProfiles)
+    .innerJoin(schema.users, eq(schema.users.id, schema.kycProfiles.userId))
+    .where(eq(schema.kycProfiles.status, 'UNVERIFIED'))
+    .orderBy(desc(schema.kycProfiles.createdAt));
+}
+
+export async function getAllUsersKycList() {
+  return await db
+    .select({
+      userId: schema.users.id,
+      wallet: schema.users.wallet,
+      status: schema.kycProfiles.status,
+      fullName: schema.kycProfiles.fullName,
+      nik: schema.kycProfiles.nik,
+      address: schema.kycProfiles.address,
+      ktpPhoto: schema.kycProfiles.ktpPhoto,
+      adminComment: schema.kycProfiles.adminComment,
+      verifiedAt: schema.kycProfiles.verifiedAt,
+    })
+    .from(schema.users)
+    .leftJoin(schema.kycProfiles, eq(schema.kycProfiles.userId, schema.users.id))
+    .orderBy(desc(schema.users.createdAt));
+}
+
+export async function updateKycStatus(
+  userId: string, 
+  status: 'VERIFIED' | 'UNVERIFIED', 
+  adminComment: string | null
+) {
+  await db.update(schema.kycProfiles)
+    .set({ 
+      status, 
+      adminComment,
+      verifiedAt: status === 'VERIFIED' ? new Date() : null,
+      updatedAt: new Date()
+    })
+    .where(eq(schema.kycProfiles.userId, userId));
 }

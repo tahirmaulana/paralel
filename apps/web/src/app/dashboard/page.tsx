@@ -1,7 +1,8 @@
-// @file apps/web/src/app/dashboard/page.tsx
 import { getNotaryByWallet, getGuarantorByWallet } from '@/lib/db';
 import { NotaryDashboard } from '@/components/NotaryDashboard';
 import { GuarantorDashboard } from '@/components/GuarantorDashboard';
+import { UserDashboard } from '@/components/UserDashboard';
+import { AdminDashboard } from '@/components/AdminDashboard';
 import { WalletGuard } from '@/components/WalletGuard';
 import Link from 'next/link';
 
@@ -14,46 +15,30 @@ export default async function DashboardPage({
 }) {
   const { wallet } = await searchParams;
 
-  if (!wallet) {
+  if (!wallet) return <div className="p-8 text-center text-gray-500">Silakan Connect Wallet.</div>;
+
+  // 1. AUTH GATE: ADMIN (Paling Atas)
+  const adminWallets = (process.env.USER_ADMIN_WALLET || '').split(',').map((w) => w.trim().toLowerCase());
+  if (adminWallets.includes(wallet.toLowerCase())) {
     return (
-      <div className="p-8 text-center text-gray-500">
-        Silakan Connect Wallet terlebih dahulu di pojok kanan atas.
-      </div>
+      <WalletGuard expectedWallet={wallet}>
+        <AdminDashboard adminWallet={wallet} />
+      </WalletGuard>
     );
   }
 
-  // Auth gate: notary first
+  // 2. AUTH GATE: NOTARY
   const notary = await getNotaryByWallet(wallet);
-  if (notary) {
-    return (
-      <WalletGuard expectedWallet={wallet}>
-        <NotaryDashboard notary={notary} />
-      </WalletGuard>
-    );
-  }
+  if (notary) return <WalletGuard expectedWallet={wallet}><NotaryDashboard notary={notary} /></WalletGuard>;
 
-  // Auth gate: guarantor
+  // 3. AUTH GATE: GUARANTOR
   const guarantor = await getGuarantorByWallet(wallet);
-  if (guarantor) {
-    return (
-      <WalletGuard expectedWallet={wallet}>
-        <GuarantorDashboard guarantor={guarantor} />
-      </WalletGuard>
-    );
-  }
+  if (guarantor) return <WalletGuard expectedWallet={wallet}><GuarantorDashboard guarantor={guarantor} /></WalletGuard>;
 
-  // Fallback untuk wallet user biasa
+  // 4. AUTH GATE: USER
   return (
     <WalletGuard expectedWallet={wallet}>
-      <div className="p-8 text-center">
-        <h1 className="text-2xl font-bold mb-4">User Dashboard</h1>
-        <p className="text-gray-600">
-          Fitur untuk Bidder / Consignor sedang dikembangkan.
-        </p>
-        <Link href="/auctions" className="text-blue-600 hover:underline mt-4 inline-block">
-          ← Kembali ke Feed
-        </Link>
-      </div>
+      <UserDashboard wallet={wallet} />
     </WalletGuard>
   );
 }

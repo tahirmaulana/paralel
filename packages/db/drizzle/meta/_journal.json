@@ -15,6 +15,20 @@
       "when": 1793914361534,
       "tag": "0001_cooing_risque",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793981672505,
+      "tag": "0002_elite_mojo",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793982841933,
+      "tag": "0003_famous_thunderball",
+      "breakpoints": true
     }
   ]
 }

@@ -28,11 +28,14 @@ export const users = pgTable('users', {
   check('chk_users_pref_lang', sql`${t.preferredLanguage} IN ('EN','ID')`),
 ]);
 
+// Cari tabel kycProfiles, ubah menjadi seperti ini:
 export const kycProfiles = pgTable('kyc_profiles', {
   userId: uuid('user_id').primaryKey().references(() => users.id),
   fullName: text('full_name').notNull(),
   nik: text('nik').notNull(),
   address: text('address').notNull(),
+  ktpPhoto: text('ktp_photo'), // BARU: Base64
+  adminComment: text('admin_comment'), // BARU: Feedback Admin
   faceVerified: boolean('face_verified').notNull().default(false),
   idExtractedByAi: boolean('id_extracted_by_ai').notNull(),
   status: text('status').notNull(),
@@ -41,7 +44,8 @@ export const kycProfiles = pgTable('kyc_profiles', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   check('chk_kyc_nik', sql`${t.nik} ~ '^[0-9]{16}$'`),
-  check('chk_kyc_status', sql`${t.status} IN ('PENDING','VERIFIED','FAILED')`),
+  // Hanya UNVERIFIED dan VERIFIED
+  check('chk_kyc_status', sql`${t.status} IN ('UNVERIFIED','VERIFIED')`),
 ]);
 
 export const partners = pgTable('partners', {

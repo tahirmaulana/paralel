@@ -1,0 +1,2 @@
+ALTER TABLE "kyc_profiles" DROP CONSTRAINT "chk_kyc_status";--> statement-breakpoint
+ALTER TABLE "kyc_profiles" ADD CONSTRAINT "chk_kyc_status" CHECK ("kyc_profiles"."status" IN ('UNVERIFIED','VERIFIED','FAILED'));
