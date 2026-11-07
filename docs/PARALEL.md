@@ -393,7 +393,10 @@ Lelang **PASSED_IN** bila CLOSED tanpa bid sama sekali, atau semua kandidat DEFA
   - Statement bill.
   - Data pribadi diisi oleh **AI agent yang membaca ID** (ekstraksi KTP) untuk form registrasi.
 - **AI agent hanya dipakai untuk ekstraksi KTP.** Fitur lain (feed, tombol aksi, notifikasi) tidak memakai AI. Bila kelak ditambah, AI agent tidak boleh memegang private key atau memutuskan hal yang menyangkut dana atau status on-chain.
-- - **Review KYC:** Platform/Notary bertindak sebagai Admin yang memverifikasi data KYC. Admin diidentifikasi melalui list wallet di environment variable `USER_ADMIN_WALLET`. Hanya wallet yang terdaftar yang dapat mengakses `/admin` dan mengubah status `UNVERIFIED` menjadi `VERIFIED` atau `FAILED`.
+- **Review KYC:** `user-admin` bertindak sebagai Admin yang memverifikasi data KYC dari semua user. `user-admin` diidentifikasi melalui 2 lapis:
+  1. **Bootstrap/emergency:** List wallet di environment variable `USER_ADMIN_WALLET`.
+  2. **Runtime:** Tabel `user_admins` di database (dikelola dari UI Platform Admin).
+  Hanya wallet yang ada di salah satu (atau kedua) sumber di atas yang dapat mengakses `/user-admin` dan mengubah status `UNVERIFIED` menjadi `VERIFIED`, atau menolaknya dengan komentar (tetap `UNVERIFIED`). Wallet yang dihapus (soft-delete) dari `user_admins` akan langsung kehilangan akses dan *fallback* ke User UI biasa saat login berikutnya.
 
 ## 17. UI/UX
 

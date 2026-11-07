@@ -21,13 +21,26 @@ export async function POST(req: Request) {
     });
     return NextResponse.json({ ok: true });
   } catch (err: any) {
-    const message = err?.message ?? 'unknown error';
-    if (message === 'KYC already verified — cannot resubmit') {
-      return NextResponse.json({ error: message }, { status: 409 });
+    // Log full error server-side untuk investigasi.
+    console.error('[user/kyc] failed — full error:', err);
+
+    // Drizzle/Neon wraps the real Postgres error in `cause`.
+    // Extract the most specific message we can find.
+    const pgMessage =
+      err?.cause?.message ??
+      err?.cause?.detail ??
+      err?.cause?.hint ??
+      err?.detail ??
+      err?.message ??
+      'unknown error';
+
+    if (pgMessage === 'KYC already verified — cannot resubmit') {
+      return NextResponse.json({ error: pgMessage }, { status: 409 });
     }
-    if (message === 'User creation failed') {
-      return NextResponse.json({ error: message }, { status: 500 });
+    if (pgMessage === 'User creation failed') {
+      return NextResponse.json({ error: pgMessage }, { status: 500 });
     }
-    return NextResponse.json({ error: message }, { status: 500 });
+
+    return NextResponse.json({ error: pgMessage }, { status: 500 });
   }
 }
