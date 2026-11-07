@@ -4,18 +4,32 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import abiData from '@/app/abi.json';
 import { CONTRACT_ADDRESS } from '@/lib/web3';
+import { ConfigurationManager } from '@/components/ConfigurationManager';
 
 export default function PlatformAdmin() {
   const { address, isConnected } = useAccount();
-  const [activeTab, setActiveTab] = useState('notary'); // notary, guarantor, tax, relayer
+  const [activeTab, setActiveTab] = useState('notary'); // notary, guarantor, tax, configuration
+  const [mounted, setMounted] = useState(false);
 
-  const { data: owner } = useReadContract({
+  // 1. Cegah Hydration Mismatch
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // 2. Cek Owner Kontrak
+  const { data: owner, isLoading: isLoadingOwner } = useReadContract({
     address: CONTRACT_ADDRESS,
     abi: abiData.abi,
     functionName: 'owner',
   });
   
   const isOwner = isConnected && owner && address?.toLowerCase() === (owner as string)?.toLowerCase();
+
+  if (!mounted) return null; 
+
+  if (isConnected && isLoadingOwner) {
+    return <div className="p-8 text-center text-gray-500">Memverifikasi Owner Kontrak...</div>;
+  }
 
   if (!isConnected) return <div className="p-8 text-center">Connect Wallet dulu.</div>;
   if (!isOwner) return <div className="p-8 text-center text-red-500 font-bold">Access Denied. Hanya Contract Owner yang bisa mengakses.</div>;
@@ -29,14 +43,14 @@ export default function PlatformAdmin() {
         <button onClick={() => setActiveTab('notary')} className={`pb-2 font-bold ${activeTab === 'notary' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500'}`}>Notaries</button>
         <button onClick={() => setActiveTab('guarantor')} className={`pb-2 font-bold ${activeTab === 'guarantor' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500'}`}>Guarantors</button>
         <button onClick={() => setActiveTab('tax')} className={`pb-2 font-bold ${activeTab === 'tax' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500'}`}>Tax</button>
-        <button onClick={() => setActiveTab('relayer')} className={`pb-2 font-bold ${activeTab === 'relayer' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500'}`}>Relayer</button>
+        <button onClick={() => setActiveTab('configuration')} className={`pb-2 font-bold ${activeTab === 'configuration' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500'}`}>Configuration</button>
       </div>
 
       {/* CONTENT */}
       {activeTab === 'notary' && <PartnerManager type="NOTARY" />}
       {activeTab === 'guarantor' && <PartnerManager type="GUARANTOR" />}
       {activeTab === 'tax' && <TaxReadOnly />}
-      {activeTab === 'relayer' && <RelayerManager />}
+      {activeTab === 'configuration' && <ConfigurationManager />}
     </div>
   );
 }
@@ -208,79 +222,6 @@ function TaxReadOnly() {
       <p className="text-sm text-red-500 mt-4">
         *Alamat ini tidak dapat diubah karena ditetapkan saat deploy kontrak.
       </p>
-    </div>
-  );
-}
-
-// ─── KOMPONEN TAB RELAYER ───
-function RelayerManager() {
-  const [newRelayer, setNewRelayer] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const { data: currentRelayer, refetch: refetchRelayer } = useReadContract({
-    address: CONTRACT_ADDRESS,
-    abi: abiData.abi,
-    functionName: 'relayerWallet',
-  });
-
-  const { writeContractAsync } = useWriteContract();
-  const [txHash, setTxHash] = useState<`0x${string}` | null>(null);
-  const { isSuccess: isTxSuccess } = useWaitForTransactionReceipt({ hash: txHash ?? undefined });
-
-  useEffect(() => {
-    if (isTxSuccess) {
-      refetchRelayer();
-      setNewRelayer('');
-      setIsSubmitting(false);
-    }
-  }, [isTxSuccess, refetchRelayer]);
-
-  const handleUpdate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newRelayer) return;
-    setIsSubmitting(true);
-    try {
-      const hash = await writeContractAsync({
-        address: CONTRACT_ADDRESS,
-        abi: abiData.abi,
-        functionName: 'setRelayer',
-        args: [newRelayer as `0x${string}`],
-      });
-      setTxHash(hash);
-    } catch (err: any) {
-      alert(err.shortMessage || err.message);
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="bg-gray-50 border p-4 rounded-lg">
-        <p className="text-sm text-gray-500 mb-1">Current Relayer Wallet (On-Chain):</p>
-        <p className="font-mono font-bold text-lg">{currentRelayer as string || 'Loading...'}</p>
-      </div>
-
-      <form onSubmit={handleUpdate} className="bg-white border p-6 rounded-lg shadow-sm space-y-4">
-        <h2 className="text-xl font-bold">Deploy New Relayer</h2>
-        <p className="text-sm text-gray-500">Pastikan wallet baru sudah memiliki saldo ETH Sepolia untuk gas fee.</p>
-        
-        <div>
-          <label className="block text-sm font-medium mb-1">New Relayer Address</label>
-          <input type="text" required value={newRelayer} onChange={(e) => setNewRelayer(e.target.value)} className="w-full border p-2 rounded text-black font-mono" placeholder="0x..." />
-        </div>
-
-        <button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 text-white font-bold py-3 rounded hover:bg-blue-700 disabled:bg-gray-400">
-          {isSubmitting ? 'Memproses...' : 'Deploy setRelayer'}
-        </button>
-      </form>
-
-      {isTxSuccess && (
-        <div className="bg-green-50 border border-green-200 p-6 rounded-lg">
-          <h3 className="text-green-800 font-bold mb-1">✅ Relayer On-Chain Berhasil Diubah!</h3>
-          <p className="text-sm text-green-700">Tx Hash: <span className="font-mono text-xs">{txHash}</span></p>
-          <p className="text-sm font-bold text-gray-800 mt-4">Done! Jangan lupa untuk update Indexer & Keeper too!</p>
-        </div>
-      )}
     </div>
   );
 }
