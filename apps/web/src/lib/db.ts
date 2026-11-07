@@ -1,8 +1,9 @@
-// @file apps/web/src/lib/db.ts — Server-side read-only Drizzle queries
+// @file apps/web/src/lib/db.ts — Server-side Drizzle queries
+// NO JSX. NO React. Only DB functions.
 import { neon } from '@neondatabase/serverless';
 import { keccak256, toBytes } from 'viem';
 import { drizzle } from 'drizzle-orm/neon-http';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import * as schema from '@db/schema';
 import { DB_FEED_STATUSES, type DbFeedStatus } from './web3';
 
@@ -174,7 +175,7 @@ export async function getNotaryByWallet(
   return row ?? null;
 }
 
-// ─── NOTARY: SUBMISSION (PENDING, GLOBAL QUEUE) ──────────────
+// ─── NOTARY: SUBMISSION ──────────────────────────────────────
 
 export type NotaryPendingApproval = {
   auctionId: string;
@@ -254,7 +255,7 @@ export async function getNotaryPendingApprovals(): Promise<NotaryPendingApproval
   }));
 }
 
-// ─── NOTARY: COLLECTIONS ──────
+// ─── NOTARY: COLLECTIONS ────────────────────────────────────
 
 export type NotaryCollectionRow = {
   auctionId: string;
@@ -312,7 +313,7 @@ export async function getNotaryCollections(
   return rows as NotaryCollectionRow[];
 }
 
-// ─── NOTARY: RUN ───────────────────────────────────────
+// ─── NOTARY: RUN ────────────────────────────────────────────
 
 export type NotaryRunRow = {
   auctionId: string;
@@ -378,7 +379,7 @@ export async function getNotaryRunAuctions(): Promise<NotaryRunRow[]> {
   return enriched.map(({ _isLive, ...r }) => r);
 }
 
-// ─── NOTARY: PASSED ───────────
+// ─── NOTARY: PASSED ────────────────────────────────────────
 
 export type NotaryPassedRow = {
   auctionId: string;
@@ -421,7 +422,7 @@ export async function getNotaryPassedAuctions(
   return rows as NotaryPassedRow[];
 }
 
-// ─── GUARANTOR QUERIES ──────────────────────────────────────
+// ─── GUARANTOR QUERIES ─────────────────────────────────────
 
 export type GuarantorProfile = {
   partnerId: string;
@@ -747,7 +748,7 @@ export async function getGuarantorHistory(
   return rows as GuarantorHistoryRow[];
 }
 
-// ─── Receipt data (untuk print form) ───────────────────────
+// ─── Receipt data ──────────────────────────────────────────
 
 export type ReceiptData = {
   auctionId: string;
@@ -838,9 +839,7 @@ export async function getReceiptData(
     .where(eq(schema.auctions.id, auctionId))
     .limit(1);
 
-  if (!row || !row.title || !row.description || !row.condition) {
-    return null;
-  }
+  if (!row || !row.title || !row.description || !row.condition) return null;
 
   if (type === 'consignment' && !row.guarantorApprovedAt) return null;
   if (type === 'collection' && !['COLLECTION', 'CLAIM_PERIOD', 'SETTLED'].includes(row.status)) return null;
@@ -878,24 +877,47 @@ export async function getReceiptData(
   };
 }
 
-// ─── USER (BIDDER & CONSIGNOR) QUERIES ─────────────────────
+// ─── USER (BIDDER & CONSIGNOR) ──────────────────────────────
 
-export async function getUserKycStatus(wallet: string) {
+export type UserKycStatus = {
+  userId: string | null;
+  kycStatus: 'NONE' | 'UNVERIFIED' | 'VERIFIED';
+  adminComment: string | null;
+  verifiedAt: Date | null;
+};
+
+export async function getUserKycStatus(wallet: string): Promise<UserKycStatus> {
   const [user] = await db
     .select({ id: schema.users.id })
     .from(schema.users)
     .where(eq(schema.users.wallet, wallet.toLowerCase()))
     .limit(1);
 
-  if (!user) return { userId: null, kycStatus: 'NONE' as const };
+  if (!user) {
+    return {
+      userId: null,
+      kycStatus: 'NONE',
+      adminComment: null,
+      verifiedAt: null,
+    };
+  }
 
   const [kyc] = await db
-    .select({ status: schema.kycProfiles.status })
+    .select({
+      status: schema.kycProfiles.status,
+      adminComment: schema.kycProfiles.adminComment,
+      verifiedAt: schema.kycProfiles.verifiedAt,
+    })
     .from(schema.kycProfiles)
     .where(eq(schema.kycProfiles.userId, user.id))
     .limit(1);
 
-  return { userId: user.id, kycStatus: kyc?.status ?? ('NONE' as const) };
+  return {
+    userId: user.id,
+    kycStatus: (kyc?.status as UserKycStatus['kycStatus']) ?? 'NONE',
+    adminComment: kyc?.adminComment ?? null,
+    verifiedAt: kyc?.verifiedAt ?? null,
+  };
 }
 
 export async function getUserLiveAuctions(wallet: string) {
@@ -944,15 +966,15 @@ export async function getUserLiveAuctions(wallet: string) {
     )
     .where(inArray(schema.auctions.status, ['SCHEDULED', 'OPEN']));
 
-  // Enrich Leader Name (ambil nama KYC jika ada)
-  const leaderWallets = rows.map(r => r.leaderWallet).filter(Boolean) as string[];
+  const leaderWallets = rows.map((r) => r.leaderWallet).filter(Boolean) as string[];
   const nameMap = new Map<string, string | null>();
   if (leaderWallets.length > 0) {
-    const profiles = await db.select({ wallet: schema.users.wallet, name: schema.kycProfiles.fullName })
+    const profiles = await db
+      .select({ wallet: schema.users.wallet, name: schema.kycProfiles.fullName })
       .from(schema.users)
       .leftJoin(schema.kycProfiles, eq(schema.kycProfiles.userId, schema.users.id))
       .where(inArray(schema.users.wallet, leaderWallets));
-    profiles.forEach(p => nameMap.set(p.wallet, p.name));
+    profiles.forEach((p) => nameMap.set(p.wallet, p.name));
   }
 
   return rows.map((r) => ({
@@ -962,7 +984,10 @@ export async function getUserLiveAuctions(wallet: string) {
     myBid: r.myBid ? BigInt(r.myBid) : null,
     closeAt: r.closeAt.toISOString(),
     openAt: r.openAt.toISOString(),
-    leaderName: r.leaderWallet ? (nameMap.get(r.leaderWallet) || `${r.leaderWallet.slice(0,6)}...${r.leaderWallet.slice(-4)}`) : '—'
+    leaderName: r.leaderWallet
+      ? nameMap.get(r.leaderWallet) ||
+        `${r.leaderWallet.slice(0, 6)}...${r.leaderWallet.slice(-4)}`
+      : '—',
   }));
 }
 
@@ -992,7 +1017,7 @@ export async function getUserJoinedAuctions(wallet: string) {
         SELECT 1 FROM bidder_stakes
         WHERE auction_id = ${schema.auctions.id}
           AND bidder_wallet = ${normalized}
-      )`
+      )`,
     );
 
   return rows.map((r) => ({
@@ -1026,7 +1051,7 @@ export async function getUserCreatedAuctions(wallet: string) {
     .where(
       sql`${schema.auctions.consignorId} = (
         SELECT id FROM users WHERE wallet = ${normalized}
-      )`
+      )`,
     );
 
   return rows.map((r) => ({
@@ -1036,12 +1061,13 @@ export async function getUserCreatedAuctions(wallet: string) {
 }
 
 export async function submitUserKyc(
-  wallet: string, 
-  data: { fullName: string, nik: string, address: string, ktpPhoto: string }
+  wallet: string,
+  data: { fullName: string; nik: string; address: string; ktpPhoto: string },
 ) {
   const normalized = wallet.toLowerCase();
-  
-  await db.insert(schema.users)
+
+  await db
+    .insert(schema.users)
     .values({ wallet: normalized, userType: 'PUBLIC' })
     .onConflictDoNothing({ target: schema.users.wallet });
 
@@ -1053,17 +1079,30 @@ export async function submitUserKyc(
 
   if (!user) throw new Error('User creation failed');
 
-  await db.insert(schema.kycProfiles)
+  // Guard: VERIFIED users cannot overwrite their KYC profile.
+  // Resubmit is allowed when status is UNVERIFIED (new or returned).
+  const [existing] = await db
+    .select({ status: schema.kycProfiles.status })
+    .from(schema.kycProfiles)
+    .where(eq(schema.kycProfiles.userId, user.id))
+    .limit(1);
+
+  if (existing?.status === 'VERIFIED') {
+    throw new Error('KYC already verified — cannot resubmit');
+  }
+
+  await db
+    .insert(schema.kycProfiles)
     .values({
       userId: user.id,
       fullName: data.fullName,
       nik: data.nik,
       address: data.address,
-      ktpPhoto: data.ktpPhoto, // Simpan Base64
-      adminComment: null,      // Reset feedback
+      ktpPhoto: data.ktpPhoto,
+      adminComment: null,
       faceVerified: false,
       idExtractedByAi: false,
-      status: 'UNVERIFIED', 
+      status: 'UNVERIFIED',
     })
     .onConflictDoUpdate({
       target: schema.kycProfiles.userId,
@@ -1073,7 +1112,8 @@ export async function submitUserKyc(
         address: data.address,
         ktpPhoto: data.ktpPhoto,
         adminComment: null,
-        status: 'UNVERIFIED', 
+        verifiedAt: null,
+        status: 'UNVERIFIED',
         updatedAt: new Date(),
       },
     });
@@ -1081,7 +1121,7 @@ export async function submitUserKyc(
   return { ok: true };
 }
 
-// ─── ADMIN QUERIES ──────────────────────────────────────────
+// ─── ADMIN QUERIES (KYC) ────────────────────────────────────
 
 export async function getUnverifiedKycList() {
   return await db
@@ -1120,16 +1160,302 @@ export async function getAllUsersKycList() {
 }
 
 export async function updateKycStatus(
-  userId: string, 
-  status: 'VERIFIED' | 'UNVERIFIED', 
-  adminComment: string | null
+  userId: string,
+  status: 'VERIFIED' | 'UNVERIFIED',
+  adminComment: string | null,
 ) {
-  await db.update(schema.kycProfiles)
-    .set({ 
-      status, 
+  await db
+    .update(schema.kycProfiles)
+    .set({
+      status,
       adminComment,
       verifiedAt: status === 'VERIFIED' ? new Date() : null,
-      updatedAt: new Date()
+      updatedAt: new Date(),
     })
     .where(eq(schema.kycProfiles.userId, userId));
+}
+
+// ─── USER ADMIN QUERIES (KYC-only scope) ───────────────────
+// Ref: /.env USER_ADMIN_WALLET comment ("mengelola KYC user"),
+//      PARALEL.md §16, existing /api/user-admin/review/route.ts.
+// Mutations from user-admin = updateKycStatus ONLY.
+
+export type UserAdminStats = {
+  totalUsers: number;
+  kycPending: number;
+  kycVerified: number;
+  kycNone: number;
+};
+
+export async function getUserAdminStats(): Promise<UserAdminStats> {
+  const rows = await sqlClient`
+    SELECT
+      (SELECT COUNT(*)::int FROM users)                                    AS "totalUsers",
+      (SELECT COUNT(*)::int FROM kyc_profiles WHERE status = 'UNVERIFIED') AS "kycPending",
+      (SELECT COUNT(*)::int FROM kyc_profiles WHERE status = 'VERIFIED')   AS "kycVerified",
+      (SELECT COUNT(*)::int FROM users u
+        WHERE NOT EXISTS (SELECT 1 FROM kyc_profiles k WHERE k.user_id = u.id))
+                                                                            AS "kycNone"
+  `;
+  return rows[0] as UserAdminStats;
+}
+
+export type UserAdminFilter = {
+  userType?: 'PUBLIC' | 'NOTARY' | 'GUARANTOR' | 'PLATFORM';
+  kycStatus?: 'UNVERIFIED' | 'VERIFIED' | 'NONE';
+  search?: string;
+};
+
+export type UserAdminListItem = {
+  userId: string;
+  wallet: string;
+  userType: string;
+  email: string | null;
+  preferredLanguage: string;
+  kycStatus: string | null;
+  fullName: string | null;
+  adminComment: string | null;
+  createdAt: Date;
+};
+
+export async function getUsersWithFilters(
+  filters: UserAdminFilter = {},
+): Promise<UserAdminListItem[]> {
+  const conditions: ReturnType<typeof eq>[] = [];
+
+  if (filters.userType) {
+    conditions.push(eq(schema.users.userType, filters.userType));
+  }
+  if (filters.kycStatus === 'NONE') {
+    conditions.push(isNull(schema.kycProfiles.status));
+  } else if (filters.kycStatus) {
+    conditions.push(eq(schema.kycProfiles.status, filters.kycStatus));
+  }
+  if (filters.search && filters.search.trim()) {
+    const q = `%${filters.search.trim().toLowerCase()}%`;
+    const searchCond = or(
+      sql`LOWER(${schema.users.wallet}) LIKE ${q}`,
+      sql`LOWER(COALESCE(${schema.users.email}, '')) LIKE ${q}`,
+      sql`LOWER(COALESCE(${schema.kycProfiles.fullName}, '')) LIKE ${q}`,
+    );
+    if (searchCond) conditions.push(searchCond);
+  }
+
+  const rows = await db
+    .select({
+      userId: schema.users.id,
+      wallet: schema.users.wallet,
+      userType: schema.users.userType,
+      email: schema.users.email,
+      preferredLanguage: schema.users.preferredLanguage,
+      kycStatus: schema.kycProfiles.status,
+      fullName: schema.kycProfiles.fullName,
+      adminComment: schema.kycProfiles.adminComment,
+      createdAt: schema.users.createdAt,
+    })
+    .from(schema.users)
+    .leftJoin(
+      schema.kycProfiles,
+      eq(schema.kycProfiles.userId, schema.users.id),
+    )
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(schema.users.createdAt));
+
+  return rows as UserAdminListItem[];
+}
+
+export type UserAdminDetail = UserAdminListItem & {
+  telegramChatId: string | null;
+  nik: string | null;
+  address: string | null;
+  ktpPhoto: string | null;
+  faceVerified: boolean | null;
+  idExtractedByAi: boolean | null;
+  verifiedAt: Date | null;
+  partner: {
+    id: string;
+    type: string;
+    name: string;
+    category: string | null;
+    city: string | null;
+    documentNumber: string | null;
+    address: string | null;
+    photo: string | null;
+    active: boolean;
+  } | null;
+};
+
+export async function getUserAdminDetail(
+  userId: string,
+): Promise<UserAdminDetail | null> {
+  const [row] = await db
+    .select({
+      userId: schema.users.id,
+      wallet: schema.users.wallet,
+      userType: schema.users.userType,
+      email: schema.users.email,
+      preferredLanguage: schema.users.preferredLanguage,
+      telegramChatId: schema.users.telegramChatId,
+      createdAt: schema.users.createdAt,
+      kycStatus: schema.kycProfiles.status,
+      fullName: schema.kycProfiles.fullName,
+      nik: schema.kycProfiles.nik,
+      address: schema.kycProfiles.address,
+      ktpPhoto: schema.kycProfiles.ktpPhoto,
+      adminComment: schema.kycProfiles.adminComment,
+      faceVerified: schema.kycProfiles.faceVerified,
+      idExtractedByAi: schema.kycProfiles.idExtractedByAi,
+      verifiedAt: schema.kycProfiles.verifiedAt,
+      partnerId: schema.partners.id,
+      partnerType: schema.partners.type,
+      partnerName: schema.partners.name,
+      partnerCategory: schema.partners.category,
+      partnerCity: schema.partners.city,
+      partnerDocumentNumber: schema.partners.documentNumber,
+      partnerAddress: schema.partners.address,
+      partnerPhoto: schema.partners.photo,
+      partnerActive: schema.partners.active,
+    })
+    .from(schema.users)
+    .leftJoin(
+      schema.kycProfiles,
+      eq(schema.kycProfiles.userId, schema.users.id),
+    )
+    .leftJoin(schema.partners, eq(schema.partners.userId, schema.users.id))
+    .where(eq(schema.users.id, userId))
+    .limit(1);
+
+  if (!row) return null;
+
+  return {
+    userId: row.userId,
+    wallet: row.wallet,
+    userType: row.userType,
+    email: row.email,
+    preferredLanguage: row.preferredLanguage,
+    kycStatus: row.kycStatus,
+    fullName: row.fullName,
+    adminComment: row.adminComment,
+    createdAt: row.createdAt,
+    telegramChatId: row.telegramChatId?.toString() ?? null,
+    nik: row.nik,
+    address: row.address,
+    ktpPhoto: row.ktpPhoto,
+    faceVerified: row.faceVerified,
+    idExtractedByAi: row.idExtractedByAi,
+    verifiedAt: row.verifiedAt,
+    partner: row.partnerId
+      ? {
+          id: row.partnerId,
+          type: row.partnerType!,
+          name: row.partnerName!,
+          category: row.partnerCategory,
+          city: row.partnerCity,
+          documentNumber: row.partnerDocumentNumber,
+          address: row.partnerAddress,
+          photo: row.partnerPhoto,
+          active: row.partnerActive!,
+        }
+      : null,
+  };
+}
+
+// ─── USER ADMIN REGISTRY (runtime) ─────────────────────────
+// Sumber kebenaran runtime untuk grant akses KYC admin (§16).
+// Env USER_ADMIN_WALLET tetap sebagai bootstrap/emergency fallback.
+
+export type UserAdminRow = {
+  id: string;
+  wallet: string;
+  active: boolean;
+  addedBy: string;
+  createdAt: Date;
+  source: 'DB' | 'ENV';
+};
+
+export async function listUserAdmins(): Promise<UserAdminRow[]> {
+  const dbRows = await db
+    .select({
+      id: schema.userAdmins.id,
+      wallet: schema.userAdmins.wallet,
+      active: schema.userAdmins.active,
+      addedBy: schema.userAdmins.addedBy,
+      createdAt: schema.userAdmins.createdAt,
+    })
+    .from(schema.userAdmins)
+    .orderBy(desc(schema.userAdmins.createdAt));
+
+  const rows: UserAdminRow[] = dbRows.map((r) => ({ ...r, source: 'DB' }));
+
+  // Env-only wallets not yet in DB → surface as virtual rows so admin
+  // sees them in UI. These cannot be removed from the UI (edit .env instead).
+  const envWallets = (process.env.USER_ADMIN_WALLET || '')
+    .split(',')
+    .map((w) => w.trim().toLowerCase())
+    .filter(Boolean);
+  const dbWallets = new Set(dbRows.map((r) => r.wallet));
+  const envOnly = envWallets.filter((w) => !dbWallets.has(w));
+
+  const envRows: UserAdminRow[] = envOnly.map((w) => ({
+    id: `env-${w}`,
+    wallet: w,
+    active: true,
+    addedBy: '0x0000000000000000000000000000000000000000',
+    createdAt: new Date(0),
+    source: 'ENV',
+  }));
+
+  return [...envRows, ...rows];
+}
+
+export async function addUserAdmin(wallet: string, addedBy: string): Promise<void> {
+  await db
+    .insert(schema.userAdmins)
+    .values({
+      wallet: wallet.toLowerCase(),
+      addedBy: addedBy.toLowerCase(),
+      active: true,
+    })
+    .onConflictDoUpdate({
+      target: schema.userAdmins.wallet,
+      set: { active: true },
+    });
+}
+
+export async function deactivateUserAdmin(wallet: string): Promise<boolean> {
+  const result = await db
+    .update(schema.userAdmins)
+    .set({ active: false })
+    .where(
+      and(
+        eq(schema.userAdmins.wallet, wallet.toLowerCase()),
+        eq(schema.userAdmins.active, true),
+      ),
+    )
+    .returning({ id: schema.userAdmins.id });
+  return result.length > 0;
+}
+
+export async function isUserAdmin(wallet: string): Promise<boolean> {
+  const normalized = wallet.toLowerCase();
+
+  // Env fallback — bootstrap / emergency. Always trusted.
+  const envWallets = (process.env.USER_ADMIN_WALLET || '')
+    .split(',')
+    .map((w) => w.trim().toLowerCase())
+    .filter(Boolean);
+  if (envWallets.includes(normalized)) return true;
+
+  // DB check (active = true).
+  const [row] = await db
+    .select({ id: schema.userAdmins.id })
+    .from(schema.userAdmins)
+    .where(
+      and(
+        eq(schema.userAdmins.wallet, normalized),
+        eq(schema.userAdmins.active, true),
+      ),
+    )
+    .limit(1);
+  return !!row;
 }

@@ -1,15 +1,14 @@
+// @file apps/web/src/app/api/user-admin/kyc/route.ts
+// Legacy listing endpoints. Kept for compatibility; auth now env ∪ DB.
 import { NextResponse } from 'next/server';
-import { getUnverifiedKycList, getAllUsersKycList } from '@/lib/db';
+import { getUnverifiedKycList, getAllUsersKycList, isUserAdmin } from '@/lib/db';
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const wallet = searchParams.get('wallet')?.toLowerCase();
   const type = searchParams.get('type'); // 'users' atau 'requests'
-  
-  const adminWallets = (process.env.USER_ADMIN_WALLET || '').split(',').map(w => w.trim().toLowerCase());
-  
-  // Validasi: Apakah wallet ada di list USER_ADMIN_WALLET?
-  if (!wallet || !adminWallets.includes(wallet)) {
+
+  if (!wallet || !(await isUserAdmin(wallet))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
   }
 

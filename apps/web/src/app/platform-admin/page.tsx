@@ -5,18 +5,17 @@ import { useAccount, useReadContract, useWriteContract, useWaitForTransactionRec
 import abiData from '@/app/abi.json';
 import { CONTRACT_ADDRESS } from '@/lib/web3';
 import { ConfigurationManager } from '@/components/ConfigurationManager';
+import { UserAdminManager } from '@/components/UserAdminManager';
 
 export default function PlatformAdmin() {
   const { address, isConnected } = useAccount();
-  const [activeTab, setActiveTab] = useState('notary'); // notary, guarantor, tax, configuration
+  const [activeTab, setActiveTab] = useState('notary'); // notary, guarantor, tax, user-admins, configuration
   const [mounted, setMounted] = useState(false);
 
-  // 1. Cegah Hydration Mismatch
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // 2. Cek Owner Kontrak
   const { data: owner, isLoading: isLoadingOwner } = useReadContract({
     address: CONTRACT_ADDRESS,
     abi: abiData.abi,
@@ -43,6 +42,7 @@ export default function PlatformAdmin() {
         <button onClick={() => setActiveTab('notary')} className={`pb-2 font-bold ${activeTab === 'notary' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500'}`}>Notaries</button>
         <button onClick={() => setActiveTab('guarantor')} className={`pb-2 font-bold ${activeTab === 'guarantor' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500'}`}>Guarantors</button>
         <button onClick={() => setActiveTab('tax')} className={`pb-2 font-bold ${activeTab === 'tax' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500'}`}>Tax</button>
+        <button onClick={() => setActiveTab('user-admins')} className={`pb-2 font-bold ${activeTab === 'user-admins' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500'}`}>User Admins</button>
         <button onClick={() => setActiveTab('configuration')} className={`pb-2 font-bold ${activeTab === 'configuration' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500'}`}>Configuration</button>
       </div>
 
@@ -50,6 +50,7 @@ export default function PlatformAdmin() {
       {activeTab === 'notary' && <PartnerManager type="NOTARY" />}
       {activeTab === 'guarantor' && <PartnerManager type="GUARANTOR" />}
       {activeTab === 'tax' && <TaxReadOnly />}
+      {activeTab === 'user-admins' && <UserAdminManager />}
       {activeTab === 'configuration' && <ConfigurationManager />}
     </div>
   );

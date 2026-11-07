@@ -16,10 +16,10 @@ export async function GET(req: Request) {
   }
 
   try {
-    // Ambil status KYC
-    const { kycStatus } = await getUserKycStatus(wallet);
+    // Ambil status KYC (termasuk feedback admin dan waktu verifikasi).
+    const kyc = await getUserKycStatus(wallet);
 
-    // Ambil data lelang secara paralel
+    // Ambil data lelang secara paralel.
     const [live, joined, created] = await Promise.all([
       getUserLiveAuctions(wallet),
       getUserJoinedAuctions(wallet),
@@ -27,7 +27,9 @@ export async function GET(req: Request) {
     ]);
 
     return NextResponse.json({
-      kycStatus,
+      kycStatus: kyc.kycStatus,
+      adminComment: kyc.adminComment,
+      verifiedAt: kyc.verifiedAt?.toISOString() ?? null,
       liveAuctions: live,
       joinedAuctions: joined,
       createdAuctions: created,

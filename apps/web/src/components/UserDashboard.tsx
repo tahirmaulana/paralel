@@ -1,7 +1,7 @@
 // @file apps/web/src/components/UserDashboard.tsx
 'use client';
 
-import { useState, useEffect, useCallback } from 'react'; // <-- INI YANG TERTINGGAL
+import { useState, useEffect, useCallback } from 'react';
 import { useConnection, useDisconnect } from 'wagmi';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -12,13 +12,13 @@ type TabId = 'live' | 'my-auction' | 'profile' | 'create';
 export function UserDashboard({ wallet }: { wallet: string }) {
   const router = useRouter();
   const { disconnect } = useDisconnect();
-  
+
   const [activeTab, setActiveTab] = useState<TabId>('live');
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
-  
+
   const [data, setData] = useState<any>(null);
-  const [kycStatus, setKycStatus] = useState<'NONE' | 'UNVERIFIED' | 'VERIFIED' | 'FAILED'>('NONE');
+  const [kycStatus, setKycStatus] = useState<'NONE' | 'UNVERIFIED' | 'VERIFIED'>('NONE');
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -167,7 +167,7 @@ function MyAuctionTab({ joined, created }: { joined: any[], created: any[] }) {
   );
 }
 
-function ProfileTab({ wallet, kycStatus, onRefresh, adminComment }: { wallet: string, kycStatus: string, onRefresh: () => void, adminComment?: string }) {
+function ProfileTab({ wallet, kycStatus, onRefresh, adminComment }: { wallet: string, kycStatus: string, onRefresh: () => void, adminComment?: string | null }) {
   const [form, setForm] = useState({ fullName: '', nik: '', address: '' });
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -176,13 +176,13 @@ function ProfileTab({ wallet, kycStatus, onRefresh, adminComment }: { wallet: st
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
     if (!selected) return;
-    
+
     if (selected.size > 500 * 1024) {
       alert('Ukuran foto KTP maksimal 500KB.');
       e.target.value = '';
       return;
     }
-    
+
     setFile(selected);
     const reader = new FileReader();
     reader.onloadend = () => setPreview(reader.result as string);
@@ -192,7 +192,7 @@ function ProfileTab({ wallet, kycStatus, onRefresh, adminComment }: { wallet: st
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!preview) return alert('Harap upload foto KTP.');
-    
+
     setIsSubmitting(true);
     try {
       const res = await fetch('/api/user/kyc', {
@@ -200,7 +200,10 @@ function ProfileTab({ wallet, kycStatus, onRefresh, adminComment }: { wallet: st
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ wallet, ...form, ktpPhoto: preview }),
       });
-      if (!res.ok) throw new Error('Failed to submit KYC');
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || 'Failed to submit KYC');
+      }
       onRefresh();
     } catch (err: any) {
       alert(err.message);
@@ -209,26 +212,7 @@ function ProfileTab({ wallet, kycStatus, onRefresh, adminComment }: { wallet: st
     }
   };
 
-  if (kycStatus === 'UNVERIFIED') {
-    return (
-      <div className="max-w-2xl">
-        <h1 className="text-3xl font-bold mb-6">Profile & KYC</h1>
-        
-        {adminComment && (
-          <div className="bg-red-50 border border-red-300 p-4 rounded-xl mb-6">
-            <h3 className="font-bold text-red-800 mb-1">Admin Feedback:</h3>
-            <p className="text-red-700">{adminComment}</p>
-          </div>
-        )}
-
-        <div className="bg-yellow-50 border border-yellow-300 p-6 rounded-xl text-center">
-          <h2 className="text-xl font-bold text-yellow-800 mb-2">KYC Under Review</h2>
-          <p className="text-yellow-700">Data Anda sedang ditinjau oleh Admin.</p>
-        </div>
-      </div>
-    );
-  }
-
+  // Verified: terminal. No form.
   if (kycStatus === 'VERIFIED') {
     return (
       <div className="max-w-2xl">
@@ -240,11 +224,42 @@ function ProfileTab({ wallet, kycStatus, onRefresh, adminComment }: { wallet: st
     );
   }
 
+  // Pure "under review" — submitted and never touched by admin yet.
+  // Distinguished from "returned" by the absence of adminComment.
+  if (kycStatus === 'UNVERIFIED' && !adminComment) {
+    return (
+      <div className="max-w-2xl">
+        <h1 className="text-3xl font-bold mb-6">Profile & KYC</h1>
+        <div className="bg-yellow-50 border border-yellow-300 p-6 rounded-xl text-center">
+          <h2 className="text-xl font-bold text-yellow-800 mb-2">KYC Under Review</h2>
+          <p className="text-yellow-700">Data Anda sedang ditinjau oleh Admin.</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Form state: NONE (fresh submission) OR UNVERIFIED + adminComment (returned).
+  // Backend will reset status to UNVERIFIED and adminComment to null on resubmit.
+  const isResubmit = kycStatus === 'UNVERIFIED' && !!adminComment;
+
   return (
     <div className="max-w-2xl">
-      <h1 className="text-3xl font-bold mb-2">Complete Your Profile</h1>
-      <p className="text-gray-500 mb-6">Isi data KTP Anda untuk verifikasi Admin.</p>
-      
+      <h1 className="text-3xl font-bold mb-2">
+        {isResubmit ? 'Resubmit KYC' : 'Complete Your Profile'}
+      </h1>
+      <p className="text-gray-500 mb-6">
+        {isResubmit
+          ? 'Admin telah mengembalikan KYC Anda. Perbaiki sesuai feedback di bawah, lalu kirim ulang.'
+          : 'Isi data KTP Anda untuk verifikasi Admin.'}
+      </p>
+
+      {isResubmit && adminComment && (
+        <div className="bg-red-50 border border-red-300 p-4 rounded-xl mb-6">
+          <h3 className="font-bold text-red-800 mb-1">Admin Feedback:</h3>
+          <p className="text-red-700 whitespace-pre-wrap">{adminComment}</p>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="bg-white border rounded-xl p-6 shadow-sm space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
@@ -258,7 +273,7 @@ function ProfileTab({ wallet, kycStatus, onRefresh, adminComment }: { wallet: st
           <label className="block text-sm font-medium text-gray-700 mb-1">Alamat</label>
           <textarea required value={form.address} onChange={e => setForm({...form, address: e.target.value})} className="w-full border rounded px-3 py-2 text-black" rows={3}></textarea>
         </div>
-        
+
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Foto KTP (Maks 500KB)</label>
           <input type="file" accept="image/*" onChange={handleFileChange} className="w-full border rounded px-3 py-2 text-black" />
@@ -266,7 +281,11 @@ function ProfileTab({ wallet, kycStatus, onRefresh, adminComment }: { wallet: st
         </div>
 
         <button type="submit" disabled={isSubmitting} className="w-full py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 disabled:bg-gray-400">
-          {isSubmitting ? 'Submitting...' : 'Submit KYC to Admin'}
+          {isSubmitting
+            ? 'Submitting...'
+            : isResubmit
+              ? 'Resubmit KYC to Admin'
+              : 'Submit KYC to Admin'}
         </button>
       </form>
     </div>

@@ -28,14 +28,13 @@ export const users = pgTable('users', {
   check('chk_users_pref_lang', sql`${t.preferredLanguage} IN ('EN','ID')`),
 ]);
 
-// Cari tabel kycProfiles, ubah menjadi seperti ini:
 export const kycProfiles = pgTable('kyc_profiles', {
   userId: uuid('user_id').primaryKey().references(() => users.id),
   fullName: text('full_name').notNull(),
   nik: text('nik').notNull(),
   address: text('address').notNull(),
-  ktpPhoto: text('ktp_photo'), // BARU: Base64
-  adminComment: text('admin_comment'), // BARU: Feedback Admin
+  ktpPhoto: text('ktp_photo'),
+  adminComment: text('admin_comment'),
   faceVerified: boolean('face_verified').notNull().default(false),
   idExtractedByAi: boolean('id_extracted_by_ai').notNull(),
   status: text('status').notNull(),
@@ -44,7 +43,6 @@ export const kycProfiles = pgTable('kyc_profiles', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   check('chk_kyc_nik', sql`${t.nik} ~ '^[0-9]{16}$'`),
-  // Hanya UNVERIFIED dan VERIFIED
   check('chk_kyc_status', sql`${t.status} IN ('UNVERIFIED','VERIFIED')`),
 ]);
 
@@ -55,9 +53,9 @@ export const partners = pgTable('partners', {
   name: text('name').notNull(),
   category: text('category'),
   city: text('city'),
-  documentNumber: text('document_number'), // Untuk Nomor SK / SIUP
-  address: text('address'),                // Untuk Alamat Fisik
-  photo: text('photo'),                    // Untuk Foto (Base64)
+  documentNumber: text('document_number'),
+  address: text('address'),
+  photo: text('photo'),
   active: boolean('active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
@@ -89,9 +87,6 @@ export const auctions = pgTable('auctions', {
   auctionCode: text('auction_code').notNull().unique(),
   consignorId: uuid('consignor_id').notNull().references(() => users.id),
   guarantorId: uuid('guarantor_id').notNull().references(() => partners.id),
-  // CHANGED (shared queue, PARALEL.md §4.1, D2.1, D11.2):
-  // notary_id nullable — NULL saat PENDING, di-set saat NOTARY_APPROVED diterima (cache).
-  // Sumber kebenaran: attestations (signer_wallet, type='NOTARY_APPROVED').
   notaryId: uuid('notary_id').references(() => partners.id),
   category: text('category').notNull(),
   currency: text('currency').notNull().default('USDC'),
@@ -214,8 +209,6 @@ export const attestations = pgTable('attestations', {
 }, (t) => [
   check('chk_att_type', sql`${t.type} IN ('GUARANTOR_APPROVED','GUARANTOR_REJECTED','NOTARY_APPROVED','BIDDER_AWARD_SIGN','GUARANTOR_COLLECTED','GUARANTOR_WITHDRAWN','CONSIGNOR_CONFIRM','WITHDRAW_REQUEST')`),
   check('chk_att_signer_wallet', sql`${t.signerWallet} ~ '^0x[0-9a-f]{40}$'`),
-  // NEW (PARALEL.md D3.3, D11.2): race guard shared queue.
-  // Mencegah dua notary sign NOTARY_APPROVED untuk auction yang sama.
   uniqueIndex('uq_attestation_approval')
     .on(t.auctionId, t.type)
     .where(sql`${t.type} IN ('GUARANTOR_APPROVED','NOTARY_APPROVED')`),
@@ -384,3 +377,19 @@ export const indexerState = pgTable('indexer_state', {
   lastScannedBlock: bigint('last_scanned_block', { mode: 'bigint' }).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ─── RUNTIME USER-ADMIN REGISTRY ───────────────────────────
+// Sumber kebenaran runtime untuk grant akses KYC admin (PARALEL.md §16).
+// Env USER_ADMIN_WALLET tetap berfungsi sebagai bootstrap/emergency fallback.
+// Soft delete (active=false) → privilege dicabut, history tetap.
+
+export const userAdmins = pgTable('user_admins', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  wallet: text('wallet').notNull().unique(),
+  active: boolean('active').notNull().default(true),
+  addedBy: text('added_by').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  check('chk_user_admins_wallet', sql`${t.wallet} ~ '^0x[0-9a-f]{40}$'`),
+  check('chk_user_admins_added_by', sql`${t.addedBy} ~ '^0x[0-9a-f]{40}$'`),
+]);

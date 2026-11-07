@@ -1,5 +1,6 @@
-import {UserAdminDashboard } from '@/components/UserAdminDashboard';
+import { UserAdminDashboard } from '@/components/UserAdminDashboard';
 import { WalletGuard } from '@/components/WalletGuard';
+import { isUserAdmin } from '@/lib/db';
 import Link from 'next/link';
 
 export const instant = false;
@@ -19,11 +20,7 @@ export default async function UserAdminPage({
     );
   }
 
-  const adminWallets = (process.env.USER_ADMIN_WALLET || '')
-    .split(',')
-    .map((w) => w.trim().toLowerCase());
-
-  if (!adminWallets.includes(wallet.toLowerCase())) {
+  if (!(await isUserAdmin(wallet))) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-100">
         <div className="bg-white p-8 rounded-xl shadow-lg text-center max-w-md w-full border">

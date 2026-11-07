@@ -1,12 +1,11 @@
-import { getNotaryByWallet, getGuarantorByWallet } from '@/lib/db';
+import { getNotaryByWallet, getGuarantorByWallet, isUserAdmin } from '@/lib/db';
 import { NotaryDashboard } from '@/components/NotaryDashboard';
 import { GuarantorDashboard } from '@/components/GuarantorDashboard';
 import { UserDashboard } from '@/components/UserDashboard';
 import { UserAdminDashboard } from '@/components/UserAdminDashboard';
 import { WalletGuard } from '@/components/WalletGuard';
-import Link from 'next/link';
-import { redirect } from 'next/navigation'; // Tambahan untuk redirect
-import { createPublicClient, http } from 'viem'; // Tambahan untuk baca blockchain
+import { redirect } from 'next/navigation';
+import { createPublicClient, http } from 'viem';
 import { arbitrumSepolia } from 'viem/chains';
 import abiData from '@/app/abi.json';
 import { CONTRACT_ADDRESS } from '@/lib/web3';
@@ -43,14 +42,12 @@ export default async function DashboardPage({
     console.error("Gagal mengecek Owner Kontrak:", error);
   }
 
-  // Pindahkan redirect ke LUAR try...catch
   if (isContractOwner) {
     redirect('/platform-admin');
   }
 
-  // ─── 2. AUTH GATE: USER ADMIN (KYC) ───
-  const adminWallets = (process.env.USER_ADMIN_WALLET || '').split(',').map((w) => w.trim().toLowerCase());
-  if (adminWallets.includes(wallet.toLowerCase())) {
+  // ─── 2. AUTH GATE: USER ADMIN (KYC) — env + DB ───
+  if (await isUserAdmin(wallet)) {
     return (
       <WalletGuard expectedWallet={wallet}>
         <UserAdminDashboard adminWallet={wallet} />
