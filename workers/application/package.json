@@ -1,0 +1,24 @@
+{
+  "name": "@paralel/application",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.2.0",
+    "@paralel/auth": "1.0.0",
+    "@paralel/contracts": "1.0.0",
+    "@paralel/domain": "1.0.0",
+    "drizzle-orm": "^0.45.4",
+    "viem": "^2.57.14"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261101.1",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.47.0"
+  }
+}

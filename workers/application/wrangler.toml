@@ -1,0 +1,10 @@
+# @file workers/application/wrangler.toml
+# Cloudflare Worker configuration for the PARALEL application API.
+
+name = "paralel-application"
+main = "src/index.ts"
+compatibility_date = "2026-11-04"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+APP_ENV = "development"
