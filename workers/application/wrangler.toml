@@ -8,3 +8,8 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 APP_ENV = "development"
+
+[[secrets_store_secrets]]
+binding = "ARBITRUM_RPC_URL"
+store_id = "6ed82faf2c474a5fa75a594d362c750f"
+secret_name = "ARBITRUM_RPC_URL"
