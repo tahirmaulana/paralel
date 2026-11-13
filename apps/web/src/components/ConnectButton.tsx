@@ -10,6 +10,7 @@ import {
 } from 'wagmi';
 import { usePathname, useRouter } from 'next/navigation';
 import { arbitrumSepolia } from 'wagmi/chains';
+import { applicationApiUrl } from '@/lib/api/client';
 
 type ApiResult<T> = {
   data?: T;
@@ -59,7 +60,7 @@ export function ConnectButton({
         await switchChainAsync({ chainId: arbitrumSepolia.id });
       }
 
-      const sessionResponse = await fetch('/api/auth/session', { cache: 'no-store' });
+      const sessionResponse = await fetch(applicationApiUrl('/api/auth/session'), { cache: 'no-store', credentials: 'include' });
       if (sessionResponse.ok) {
         const sessionJson = (await sessionResponse.json()) as ApiResult<{ wallet: string }>;
         if (sessionJson.data?.wallet.toLowerCase() === wallet.toLowerCase()) {
@@ -80,8 +81,9 @@ export function ConnectButton({
         throw new Error(`Could not validate wallet session (${sessionResponse.status}).`);
       }
 
-      const challengeResponse = await fetch('/api/auth/challenge', {
+      const challengeResponse = await fetch(applicationApiUrl('/api/auth/challenge'), {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ wallet, chainId: arbitrumSepolia.id }),
       });
@@ -100,8 +102,9 @@ export function ConnectButton({
       const signature = await signMessageAsync({
         message: challengeJson.data.message,
       });
-      const verifyResponse = await fetch('/api/auth/verify', {
+      const verifyResponse = await fetch(applicationApiUrl('/api/auth/verify'), {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           wallet,

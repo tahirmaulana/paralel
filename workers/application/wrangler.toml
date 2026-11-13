@@ -5,11 +5,23 @@ name = "paralel-application"
 main = "src/index.ts"
 compatibility_date = "2026-11-04"
 compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+preview_urls = true
 
 [vars]
 APP_ENV = "development"
+USER_ADMIN_WALLET = "0xD197005D4048840fcef6247cAe7352684AAA2FeD,0x4bfE2b159e30E1Ba3256aA0697521b0772a9e759"
 
 [[secrets_store_secrets]]
 binding = "ARBITRUM_RPC_URL"
 store_id = "6ed82faf2c474a5fa75a594d362c750f"
 secret_name = "ARBITRUM_RPC_URL"
+
+[[secrets_store_secrets]]
+binding = "DATABASE_URL"
+store_id = "6ed82faf2c474a5fa75a594d362c750f"
+secret_name = "DATABASE_URL"
+
+[observability.logs]
+enabled = true
+invocation_logs = true

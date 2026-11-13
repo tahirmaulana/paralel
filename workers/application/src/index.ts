@@ -1,3 +1,8 @@
+import {
+  assertAllowedOrigin,
+  handlePreflight,
+  withCors,
+} from "./cors";
 import type { Env } from "./env";
 import { json } from "./http";
 import { routeRequest } from "./router";
@@ -8,29 +13,57 @@ export default {
     env: Env,
     _context: ExecutionContext,
   ): Promise<Response> {
-    try {
-      return await routeRequest(request, env);
-    } catch (error) {
-      console.error("Unhandled application worker error", {
-        method: request.method,
-        pathname: new URL(request.url).pathname,
-        error:
-          error instanceof Error
-            ? {
-                name: error.name,
-                message: error.message,
-                stack: error.stack,
-              }
-            : String(error),
-      });
+    const rejected =
+      assertAllowedOrigin(request);
 
-      return json(
+    if (rejected) {
+      return rejected;
+    }
+
+    const preflight =
+      handlePreflight(request);
+
+    if (preflight) {
+      return preflight;
+    }
+
+    try {
+      const response =
+        await routeRequest(request, env);
+
+      return withCors(
+        request,
+        response,
+      );
+    } catch (error) {
+      console.error(
+        "Unhandled application worker error",
         {
-          error: "INTERNAL_SERVER_ERROR",
+          method: request.method,
+          pathname:
+            new URL(request.url).pathname,
+          error:
+            error instanceof Error
+              ? {
+                  name: error.name,
+                  message: error.message,
+                  stack: error.stack,
+                }
+              : String(error),
         },
-        {
-          status: 500,
-        },
+      );
+
+      return withCors(
+        request,
+        json(
+          {
+            error:
+              "INTERNAL_SERVER_ERROR",
+          },
+          {
+            status: 500,
+          },
+        ),
       );
     }
   },

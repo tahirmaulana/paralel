@@ -1,5 +1,8 @@
 import type { Env } from "../../../env";
-import { json, methodNotAllowed } from "../../../http";
+import {
+  json,
+  methodNotAllowed,
+} from "../../../http";
 
 export const handleHealth = (
   request: Request,

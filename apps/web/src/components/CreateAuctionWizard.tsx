@@ -22,6 +22,7 @@ import {
   type UploadedFile,
 } from '@/lib/auction/upload';
 import { fmtUSDC, parseUSDC } from '@/lib/web3';
+import { applicationApiUrl } from '@/lib/api/client';
 
 const CONDITION_OPTIONS = [
   { value: 'NEW', label: 'New' },
@@ -172,7 +173,7 @@ export function CreateAuctionWizard(_: { wallet: string }) {
 
   useEffect(() => {
     let cancel = false;
-    fetch('/api/auction/config', { credentials: 'same-origin' })
+    fetch(applicationApiUrl('/api/auction/config'), { credentials: 'include' })
       .then(async (response) => {
         const value: unknown = await response.json();
         if (!response.ok) {
@@ -250,7 +251,7 @@ export function CreateAuctionWizard(_: { wallet: string }) {
     }
     let cancel = false;
     setGuarantorsLoading(true);
-    fetch(`/api/auction/guarantors?category=${encodeURIComponent(data.category)}`)
+    fetch(applicationApiUrl(`/api/auction/guarantors?category=${encodeURIComponent(data.category)}`))
       .then((r) => r.json())
       .then((j) => {
         if (cancel) return;
