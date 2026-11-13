@@ -1,0 +1,35 @@
+# Context Snapshot
+.local/
+CONTEXT.md
+CONTEXT.md.tmp
+
+# secrets
+.env
+.env.*
+.env.local
+.env.local.*
+.env.vars
+.env.vars.*
+.dev.vars
+.dev.vars.*
+!.env.example
+*.pem
+*.key
+
+# node
+node_modules/
+.next/
+dist/
+.wrangler/
+.turbo/
+
+# foundry
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+contracts/lib/
+
+# os / editor
+.DS_Store
+.vscode/
+.idea/

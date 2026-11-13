@@ -1,0 +1,47 @@
+# ─── Dependencies ────────────────────────────────────────
+node_modules/
+apps/*/node_modules/
+
+# ─── Lockfiles ───────────────────────────────────────────
+# Root package-lock.json DI-TRACK (untuk reproducibility).
+# apps/*/package-lock.json tidak dipakai lagi setelah workspaces.
+apps/*/package-lock.json
+
+# ─── Build output ────────────────────────────────────────
+.next/
+out/
+dist/
+build/
+coverage/
+.turbo/
+.wrangler/
+
+# ─── Contract artifacts ──────────────────────────────────
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+
+# ─── Env (secrets tidak masuk git) ───────────────────────
+.env
+.env.local
+.env.*.local
+*.dev.vars
+
+# ─── OS / IDE ────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# ─── Logs ────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ─── TypeScript ──────────────────────────────────────────
+*.tsbuildinfo
+
+# ─── Context generator ───────────────────────────────────
+CONTEXT.md
+.local/

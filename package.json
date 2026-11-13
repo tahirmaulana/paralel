@@ -1,0 +1,41 @@
+{
+  "name": "paralel",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:reset:testnet": "tsx scripts/db-reset.ts",
+    "contracts:abi:v3": "tsx scripts/generate-v3-abi.ts",
+    "deploy:contract:testnet": "tsx scripts/deploy-v3.ts"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "workers/*"
+  ],
+  "overrides": {
+    "drizzle-orm": "^0.45.4"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261101.1",
+    "@types/node": "^20.0.0",
+    "drizzle-kit": "^0.31.11",
+    "solc": "^0.8.24",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.2.0",
+    "dotenv": "^18.0.9",
+    "drizzle-orm": "^0.45.4",
+    "postgres": "^4.0.0",
+    "viem": "^2.57.14"
+  },
+  "allowScripts": {
+    "esbuild@0.18.20": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true
+  }
+}
