@@ -72,20 +72,6 @@ const normalizePartnerType = (
   );
 };
 
-const isConfiguredUserAdmin = (
-  env: Env,
-  wallet: Address,
-): boolean =>
-  env.USER_ADMIN_WALLET
-    .split(",")
-    .some(
-      (configuredWallet) =>
-        configuredWallet
-          .trim()
-          .toLowerCase() ===
-        wallet.toLowerCase(),
-    );
-
 export const createRoleRepository = (
   env: Env,
 ): RoleRepository => ({
@@ -129,19 +115,6 @@ export const createRoleRepository = (
   async findUserAdminByWallet(
     wallet: Address,
   ): Promise<UserAdminRoleRecord | null> {
-    if (
-      isConfiguredUserAdmin(
-        env,
-        wallet,
-      )
-    ) {
-      return Object.freeze({
-        wallet:
-          getAddress(wallet),
-        active: true,
-      });
-    }
-
     const sql =
       await createDatabaseClient(env);
 

@@ -48,6 +48,7 @@ const statusForDomainCode = (
 
     case "FORBIDDEN":
     case "ROLE_FORBIDDEN":
+    case "RESOURCE_FORBIDDEN":
       return 403;
 
     case "RPC_UNAVAILABLE":

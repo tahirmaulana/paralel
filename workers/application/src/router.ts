@@ -19,6 +19,15 @@ import {
 import {
   handleHealth,
 } from "./app/api/health/route";
+import {
+  handleUserData,
+} from "./app/api/user/data/route";
+import {
+  handleUserKyc,
+} from "./app/api/user/kyc/route";
+import {
+  handleUserKycStatus,
+} from "./app/api/user/kyc/status/route";
 import type { Env } from "./env";
 import { notFound } from "./http";
 
@@ -42,6 +51,36 @@ export const routeRequest = (
   const url = new URL(request.url);
   const pathname =
     normalizePathname(url.pathname);
+
+  if (
+    pathname ===
+    "/api/user/kyc/status"
+  ) {
+    return handleUserKycStatus(
+      request,
+      env,
+    );
+  }
+
+  if (
+    pathname ===
+    "/api/user/kyc"
+  ) {
+    return handleUserKyc(
+      request,
+      env,
+    );
+  }
+
+  if (
+    pathname ===
+    "/api/user/data"
+  ) {
+    return handleUserData(
+      request,
+      env,
+    );
+  }
 
   if (pathname === "/api/health") {
     return handleHealth(request, env);

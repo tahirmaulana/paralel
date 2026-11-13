@@ -30,6 +30,7 @@ import {
   createEip1559FeeOverrides,
 } from '@/lib/contracts/transaction-fees';
 import { ConnectButton } from '@/components/ConnectButton';
+import { applicationApiUrl } from '@/lib/api/client';
 
 type KycStatus = 'NONE' | 'UNVERIFIED' | 'VERIFIED' | 'UNAUTHENTICATED';
 
@@ -118,9 +119,10 @@ export function BidPanel({ auctionKey, roundNo, consignorWallet }: Props) {
     queryFn: async () => {
       if (!address) return 'UNAUTHENTICATED';
       const response = await fetch(
-        `/api/user/kyc/status?wallet=${encodeURIComponent(address)}`,
+        applicationApiUrl(`/api/user/kyc/status?wallet=${encodeURIComponent(address)}`),
         {
           cache: 'no-store',
+          credentials: 'include',
         },
       );
       const result = (await response.json()) as KycResponse;

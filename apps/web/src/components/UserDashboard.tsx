@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { fmtUSDC } from '@/lib/web3';
 import { CreateAuctionWizard } from '@/components/CreateAuctionWizard';
+import { applicationApiUrl } from '@/lib/api/client';
 
 type TabId = 'live' | 'my-auction' | 'profile' | 'create';
 
@@ -25,10 +26,10 @@ export function UserDashboard({ wallet }: { wallet: string }) {
     setLoading(true);
     try {
       const res = await fetch(
-        '/api/user/data',
+        applicationApiUrl('/api/user/data'),
         {
           cache: 'no-store',
-          credentials: 'same-origin',
+          credentials: 'include',
         },
       );
 
@@ -228,10 +229,10 @@ function ProfileTab({ wallet, kycStatus, onRefresh, adminComment }: { wallet: st
     setIsSubmitting(true);
     try {
       const res = await fetch(
-        '/api/user/kyc',
+        applicationApiUrl('/api/user/kyc'),
         {
           method: 'POST',
-          credentials: 'same-origin',
+          credentials: 'include',
           headers: {
             'Content-Type':
               'application/json',
