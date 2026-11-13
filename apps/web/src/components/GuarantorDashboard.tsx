@@ -32,6 +32,9 @@ import {
 import {
   createMutationHeaders,
 } from '@/lib/api/client-mutation';
+import {
+  applicationApiUrl,
+} from '@/lib/api/client';
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -223,8 +226,11 @@ export function GuarantorDashboard({ guarantor }: { guarantor: Guarantor }) {
     }
     try {
       const res = await fetch(
-        '/api/guarantor/data',
-        { cache: 'no-store' },
+        applicationApiUrl('/api/guarantor/data'),
+        {
+          cache: 'no-store',
+          credentials: 'include',
+        },
       );
       const json = (await res.json()) as ApiResult<DashboardData>;
       if (!res.ok) throw apiError(json, res.status, 'Dashboard request');

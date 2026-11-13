@@ -20,6 +20,9 @@ import {
   handleHealth,
 } from "./app/api/health/route";
 import {
+  handleGuarantorData,
+} from "./app/api/guarantor/data/route";
+import {
   handleUserData,
 } from "./app/api/user/data/route";
 import {
@@ -77,6 +80,16 @@ export const routeRequest = (
     "/api/user/data"
   ) {
     return handleUserData(
+      request,
+      env,
+    );
+  }
+
+  if (
+    pathname ===
+    "/api/guarantor/data"
+  ) {
+    return handleGuarantorData(
       request,
       env,
     );
