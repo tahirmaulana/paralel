@@ -452,8 +452,9 @@ export function GuarantorDashboard({ guarantor }: { guarantor: Guarantor }) {
         },
       });
 
-      const res = await fetch('/api/guarantor/collected', {
+      const res = await fetch(applicationApiUrl('/api/guarantor/collected'), {
         method: 'POST',
+        credentials: 'include',
         headers: createMutationHeaders(
           'guarantor-collected',
         ),
@@ -514,8 +515,9 @@ export function GuarantorDashboard({ guarantor }: { guarantor: Guarantor }) {
         },
       });
 
-      const res = await fetch('/api/guarantor/withdrawn', {
+      const res = await fetch(applicationApiUrl('/api/guarantor/withdrawn'), {
         method: 'POST',
+        credentials: 'include',
         headers: createMutationHeaders(
           'guarantor-withdrawn',
         ),

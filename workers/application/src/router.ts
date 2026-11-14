@@ -23,8 +23,14 @@ import {
   handleGuarantorApprove,
 } from "./app/api/guarantor/approve/route";
 import {
+  handleGuarantorCollected,
+} from "./app/api/guarantor/collected/route";
+import {
   handleGuarantorData,
 } from "./app/api/guarantor/data/route";
+import {
+  handleGuarantorWithdrawn,
+} from "./app/api/guarantor/withdrawn/route";
 import {
   handleGuarantorReject,
 } from "./app/api/guarantor/reject/route";
@@ -106,6 +112,26 @@ export const routeRequest = (
     "/api/guarantor/reject"
   ) {
     return handleGuarantorReject(
+      request,
+      env,
+    );
+  }
+
+  if (
+    pathname ===
+    "/api/guarantor/collected"
+  ) {
+    return handleGuarantorCollected(
+      request,
+      env,
+    );
+  }
+
+  if (
+    pathname ===
+    "/api/guarantor/withdrawn"
+  ) {
+    return handleGuarantorWithdrawn(
       request,
       env,
     );
