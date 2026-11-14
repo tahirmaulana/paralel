@@ -84,6 +84,7 @@ type PassedRow = {
 };
 
 type DashboardData = {
+  notary: Notary;
   pendingApprovals: PendingRow[];
   collections: CollectionRow[];
   run: RunRow[];
@@ -133,13 +134,14 @@ function fmtClosedCountdown(closeAt: string): string {
   return `${h}h ${m}m`;
 }
 
-export function NotaryDashboard({ notary }: { notary: Notary }) {
+export function NotaryDashboard() {
   const { address, chainId } = useConnection();
   const { signTypedDataAsync } = useSignTypedData();
   const { switchChainAsync } = useSwitchChain();
 
   const [activeTab, setActiveTab] = useState<TabId>('submission');
   const [data, setData] = useState<DashboardData | null>(null);
+  const notary = data?.notary ?? null;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -168,7 +170,7 @@ export function NotaryDashboard({ notary }: { notary: Notary }) {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [notary.wallet]);
+  }, []);
 
   useEffect(() => {
     refetch();
@@ -185,13 +187,22 @@ export function NotaryDashboard({ notary }: { notary: Notary }) {
 
   // ─── Sign NotaryApproval ─────────────────────────────────
   const walletMatches =
-    !!address && address.toLowerCase() === notary.wallet.toLowerCase();
+    !!address &&
+    !!notary &&
+    address.toLowerCase() ===
+      notary.wallet.toLowerCase();
   const chainMatches = chainId === arbitrumSepolia.id;
   const canSign = !!address && walletMatches && chainMatches;
 
   async function handleSign(auctionId: string) {
     if (!address) {
       setNotice('Connect your wallet first.');
+      return;
+    }
+    if (!notary) {
+      setNotice(
+        'Notary profile is unavailable. Refresh the dashboard and retry.',
+      );
       return;
     }
     if (!walletMatches) {
@@ -345,6 +356,38 @@ export function NotaryDashboard({ notary }: { notary: Notary }) {
   }
 
   // ─── Render helpers ──────────────────────────────────────
+  if (loading && !data) {
+    return (
+      <main className="mx-auto flex min-h-[50vh] max-w-xl items-center justify-center p-8 text-center">
+        <p className="text-gray-600">
+          Loading Notary workspace…
+        </p>
+      </main>
+    );
+  }
+
+  if (!data || !notary) {
+    return (
+      <main className="mx-auto max-w-xl p-8 text-center">
+        <h1 className="text-2xl font-bold">
+          Notary workspace unavailable
+        </h1>
+
+        <p className="my-4 text-red-600">
+          {error ?? 'Notary profile is missing from the authenticated dashboard response.'}
+        </p>
+
+        <button
+          type="button"
+          onClick={() => void refetch()}
+          className="rounded bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-700"
+        >
+          Retry
+        </button>
+      </main>
+    );
+  }
+
   const walletMismatch = !!address && !walletMatches;
   const wrongNetwork = !!address && !chainMatches;
 

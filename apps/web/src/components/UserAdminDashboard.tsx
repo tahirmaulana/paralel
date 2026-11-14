@@ -11,6 +11,9 @@ import { useRouter } from 'next/navigation';
 import {
   createMutationHeaders,
 } from '@/lib/api/client-mutation';
+import {
+  applicationApiUrl,
+} from '@/lib/api/client';
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -101,8 +104,11 @@ export function UserAdminDashboard({ adminWallet }: { adminWallet: string }) {
     setStatsLoading(true);
     try {
       const res = await fetch(
-        '/api/user-admin/stats',
-        { cache: 'no-store' },
+        applicationApiUrl('/api/user-admin/stats'),
+        {
+          cache: 'no-store',
+          credentials: 'include',
+        },
       );
       const result = (await res.json()) as ApiResult<Stats>;
       if (!res.ok) throw requestError(result, res.status);
@@ -119,8 +125,11 @@ export function UserAdminDashboard({ adminWallet }: { adminWallet: string }) {
     setKycLoading(true);
     try {
       const res = await fetch(
-        '/api/user-admin/users?kycStatus=UNVERIFIED',
-        { cache: 'no-store' },
+        applicationApiUrl('/api/user-admin/users?kycStatus=UNVERIFIED'),
+        {
+          cache: 'no-store',
+          credentials: 'include',
+        },
       );
       const result = (await res.json()) as ApiResult<UserRow[]>;
       if (!res.ok) throw requestError(result, res.status);
@@ -140,8 +149,9 @@ export function UserAdminDashboard({ adminWallet }: { adminWallet: string }) {
       if (filterKyc) params.set('kycStatus', filterKyc);
       if (search.trim()) params.set('search', search.trim());
 
-      const res = await fetch(`/api/user-admin/users?${params}`, {
+      const res = await fetch(applicationApiUrl(`/api/user-admin/users?${params}`), {
         cache: 'no-store',
+          credentials: 'include',
       });
       const result = (await res.json()) as ApiResult<UserRow[]>;
       if (!res.ok) throw requestError(result, res.status);

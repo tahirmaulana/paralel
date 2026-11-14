@@ -44,6 +44,12 @@ import {
   handleGuarantorReject,
 } from "./app/api/guarantor/reject/route";
 import {
+  handleUserAdminStats,
+} from "./app/api/user-admin/stats/route";
+import {
+  handleUserAdminUsers,
+} from "./app/api/user-admin/users/route";
+import {
   handleUserData,
 } from "./app/api/user/data/route";
 import {
@@ -91,6 +97,26 @@ export const routeRequest = (
     "/api/user/kyc"
   ) {
     return handleUserKyc(
+      request,
+      env,
+    );
+  }
+
+  if (
+    pathname ===
+    "/api/user-admin/stats"
+  ) {
+    return handleUserAdminStats(
+      request,
+      env,
+    );
+  }
+
+  if (
+    pathname ===
+    "/api/user-admin/users"
+  ) {
+    return handleUserAdminUsers(
       request,
       env,
     );

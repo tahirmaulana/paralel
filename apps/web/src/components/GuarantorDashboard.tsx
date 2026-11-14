@@ -246,7 +246,7 @@ export function GuarantorDashboard() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [guarantor?.wallet]);
+  }, []);
 
   useEffect(() => {
     refetch();
@@ -594,6 +594,38 @@ export function GuarantorDashboard() {
         `Withdraw failed: ${err?.shortMessage ?? err?.message ?? 'unknown'}`,
       );
     }
+  }
+
+  if (loading && !data) {
+    return (
+      <main className="mx-auto flex min-h-[50vh] max-w-xl items-center justify-center p-8 text-center">
+        <p className="text-gray-600">
+          Loading Guarantor workspace…
+        </p>
+      </main>
+    );
+  }
+
+  if (!data || !guarantor) {
+    return (
+      <main className="mx-auto max-w-xl p-8 text-center">
+        <h1 className="text-2xl font-bold">
+          Guarantor workspace unavailable
+        </h1>
+
+        <p className="my-4 text-red-600">
+          {error ?? 'Guarantor profile is missing from the authenticated dashboard response.'}
+        </p>
+
+        <button
+          type="button"
+          onClick={() => void refetch()}
+          className="rounded bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-700"
+        >
+          Retry
+        </button>
+      </main>
+    );
   }
 
   const walletMismatch = !!address && !walletMatches;
