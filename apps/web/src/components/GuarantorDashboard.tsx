@@ -315,8 +315,9 @@ export function GuarantorDashboard({ guarantor }: { guarantor: Guarantor }) {
         },
       });
 
-      const res = await fetch('/api/guarantor/approve', {
+      const res = await fetch(applicationApiUrl('/api/guarantor/approve'), {
         method: 'POST',
+        credentials: 'include',
         headers: createMutationHeaders(
           'guarantor-approve',
         ),
@@ -385,8 +386,9 @@ export function GuarantorDashboard({ guarantor }: { guarantor: Guarantor }) {
         },
       });
 
-      const res = await fetch('/api/guarantor/reject', {
+      const res = await fetch(applicationApiUrl('/api/guarantor/reject'), {
         method: 'POST',
+        credentials: 'include',
         headers: createMutationHeaders(
           'guarantor-reject',
         ),

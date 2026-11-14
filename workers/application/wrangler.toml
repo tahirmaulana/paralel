@@ -24,3 +24,8 @@ secret_name = "DATABASE_URL"
 [observability.logs]
 enabled = true
 invocation_logs = true
+
+[[secrets_store_secrets]]
+binding = "RELAYER_PRIVATE_KEY"
+store_id = "6ed82faf2c474a5fa75a594d362c750f"
+secret_name = "RELAYER_PRIVATE_KEY"

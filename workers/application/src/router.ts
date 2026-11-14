@@ -20,8 +20,14 @@ import {
   handleHealth,
 } from "./app/api/health/route";
 import {
+  handleGuarantorApprove,
+} from "./app/api/guarantor/approve/route";
+import {
   handleGuarantorData,
 } from "./app/api/guarantor/data/route";
+import {
+  handleGuarantorReject,
+} from "./app/api/guarantor/reject/route";
 import {
   handleUserData,
 } from "./app/api/user/data/route";
@@ -80,6 +86,26 @@ export const routeRequest = (
     "/api/user/data"
   ) {
     return handleUserData(
+      request,
+      env,
+    );
+  }
+
+  if (
+    pathname ===
+    "/api/guarantor/approve"
+  ) {
+    return handleGuarantorApprove(
+      request,
+      env,
+    );
+  }
+
+  if (
+    pathname ===
+    "/api/guarantor/reject"
+  ) {
+    return handleGuarantorReject(
       request,
       env,
     );
