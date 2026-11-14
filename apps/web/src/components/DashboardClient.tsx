@@ -8,6 +8,8 @@ import {
 import { useRouter } from 'next/navigation';
 
 import { ConnectButton } from '@/components/ConnectButton';
+import { GuarantorDashboard } from '@/components/GuarantorDashboard';
+import { NotaryDashboard } from '@/components/NotaryDashboard';
 import { UserDashboard } from '@/components/UserDashboard';
 import { WalletGuard } from '@/components/WalletGuard';
 import {
@@ -213,7 +215,23 @@ export function DashboardClient() {
       );
 
     case 'GUARANTOR':
+      return (
+        <WalletGuard
+          expectedWallet={context.wallet}
+        >
+          <GuarantorDashboard />
+        </WalletGuard>
+      );
+
     case 'NOTARY':
+      return (
+        <WalletGuard
+          expectedWallet={context.wallet}
+        >
+          <NotaryDashboard />
+        </WalletGuard>
+      );
+
     case 'USER_ADMIN':
       return (
         <main className="mx-auto max-w-xl p-8 text-center">
@@ -222,7 +240,7 @@ export function DashboardClient() {
           </h1>
 
           <p className="my-4 text-gray-600">
-            Authentication is valid. This role
+            Authentication is valid. The User Admin
             workspace is being moved to the
             Application Worker before it can be
             rendered client-side.

@@ -26,6 +26,9 @@ import { CONTRACT_ADDRESS, fmtUSDC } from '@/lib/web3';
 import {
   createMutationHeaders,
 } from '@/lib/api/client-mutation';
+import {
+  applicationApiUrl,
+} from '@/lib/api/client';
 
 type Notary = {
   partnerId: string;
@@ -150,8 +153,11 @@ export function NotaryDashboard({ notary }: { notary: Notary }) {
     }
     try {
       const res = await fetch(
-        '/api/notary/data',
-        { cache: 'no-store' },
+        applicationApiUrl('/api/notary/data'),
+        {
+          cache: 'no-store',
+          credentials: 'include',
+        },
       );
       const json = (await res.json()) as ApiResult<DashboardData>;
       if (!res.ok) throw apiError(json, res.status, 'Dashboard request');
@@ -205,8 +211,9 @@ export function NotaryDashboard({ notary }: { notary: Notary }) {
     setNotice(null);
     try {
       // Phase 1: derive the registration commitment hash on the server.
-      const initRes = await fetch('/api/notary/approve/init', {
+      const initRes = await fetch(applicationApiUrl('/api/notary/approve/init'), {
         method: 'POST',
+        credentials: 'include',
         headers: createMutationHeaders(
           'notary-approve-init',
         ),
@@ -253,8 +260,9 @@ export function NotaryDashboard({ notary }: { notary: Notary }) {
       });
 
       // Phase 3: submit signature to backend.
-      const appRes = await fetch('/api/notary/approve', {
+      const appRes = await fetch(applicationApiUrl('/api/notary/approve'), {
         method: 'POST',
+        credentials: 'include',
         headers: createMutationHeaders(
           'notary-approve',
         ),

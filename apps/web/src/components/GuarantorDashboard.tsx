@@ -104,6 +104,7 @@ type HistoryRow = {
 };
 
 type DashboardData = {
+  guarantor: Guarantor;
   submission: SubmissionRow[];
   collection: CollectionRow[];
   withdrawal: WithdrawalRow[];
@@ -180,7 +181,7 @@ function filterRows<T extends { auctionCode: string; title: string | null }>(
 
 // ─── Main component ───────────────────────────────────────
 
-export function GuarantorDashboard({ guarantor }: { guarantor: Guarantor }) {
+export function GuarantorDashboard() {
   const { address, chainId } = useConnection();
   const publicClient = usePublicClient({
     chainId: arbitrumSepolia.id,
@@ -190,6 +191,7 @@ export function GuarantorDashboard({ guarantor }: { guarantor: Guarantor }) {
 
   const [activeTab, setActiveTab] = useState<TabId>('submission');
   const [data, setData] = useState<DashboardData | null>(null);
+  const guarantor = data?.guarantor ?? null;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -201,7 +203,10 @@ export function GuarantorDashboard({ guarantor }: { guarantor: Guarantor }) {
   const [rejectReason, setRejectReason] = useState('');
 
   const walletMatches =
-    !!address && address.toLowerCase() === guarantor.wallet.toLowerCase();
+    !!address &&
+    !!guarantor &&
+    address.toLowerCase() ===
+      guarantor.wallet.toLowerCase();
   const chainMatches = chainId === arbitrumSepolia.id;
   const canSign = !!address && walletMatches && chainMatches;
 
@@ -241,7 +246,7 @@ export function GuarantorDashboard({ guarantor }: { guarantor: Guarantor }) {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [guarantor.wallet]);
+  }, [guarantor?.wallet]);
 
   useEffect(() => {
     refetch();

@@ -57,7 +57,10 @@ export const handleGuarantorData =
         );
 
       return json({
-        data,
+        data: {
+          guarantor,
+          ...data,
+        },
       });
     } catch (error) {
       const response =

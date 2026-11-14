@@ -20,6 +20,15 @@ import {
   handleHealth,
 } from "./app/api/health/route";
 import {
+  handleNotaryApproval,
+} from "./app/api/notary/approve/route";
+import {
+  handleNotaryApprovalInit,
+} from "./app/api/notary/approve/init/route";
+import {
+  handleNotaryData,
+} from "./app/api/notary/data/route";
+import {
   handleGuarantorApprove,
 } from "./app/api/guarantor/approve/route";
 import {
@@ -142,6 +151,36 @@ export const routeRequest = (
     "/api/guarantor/data"
   ) {
     return handleGuarantorData(
+      request,
+      env,
+    );
+  }
+
+  if (
+    pathname ===
+    "/api/notary/approve"
+  ) {
+    return handleNotaryApproval(
+      request,
+      env,
+    );
+  }
+
+  if (
+    pathname ===
+    "/api/notary/approve/init"
+  ) {
+    return handleNotaryApprovalInit(
+      request,
+      env,
+    );
+  }
+
+  if (
+    pathname ===
+    "/api/notary/data"
+  ) {
+    return handleNotaryData(
       request,
       env,
     );
